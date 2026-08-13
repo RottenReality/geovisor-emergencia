@@ -1,5 +1,9 @@
--- Geovisor de emergencia sismica -- esquema inicial
--- Se ejecuta una sola vez, en el primer arranque del contenedor de base.
+-- Geovisor de emergencia sismica -- esquema.
+--
+-- IDEMPOTENTE A PROPOSITO: se aplica en cada despliegue, no solo en el primer
+-- arranque del contenedor. Asi el esquema evoluciona sin necesidad de un
+-- sistema de migraciones ni de recrear la base, que en plena emergencia seria
+-- inaceptable.
 
 CREATE EXTENSION IF NOT EXISTS postgis;
 
@@ -24,23 +28,28 @@ VALUES (
 ON CONFLICT (srid) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
--- Capas: agrupan elementos y definen su simbologia en el visor.
+-- Capas vectoriales
 -- ---------------------------------------------------------------------------
-CREATE TABLE capas (
+CREATE TABLE IF NOT EXISTS capas (
   id         SERIAL PRIMARY KEY,
   nombre     TEXT NOT NULL,
-  tipo       TEXT NOT NULL DEFAULT 'vector',   -- vector | raster
+  tipo       TEXT NOT NULL DEFAULT 'vector',
   color      TEXT NOT NULL DEFAULT '#e63946',
   visible    BOOLEAN NOT NULL DEFAULT true,
   creado_en  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 'orden' controla que capa se dibuja encima de cual. Mayor = mas al frente.
+ALTER TABLE capas ADD COLUMN IF NOT EXISTS orden    INTEGER;
+ALTER TABLE capas ADD COLUMN IF NOT EXISTS opacidad REAL NOT NULL DEFAULT 1;
+UPDATE capas SET orden = id WHERE orden IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- Elementos: la geometria se guarda SIEMPRE en 4326 (estandar web).
 -- La reproyeccion a 9377 se hace al consultar, no al almacenar: asi el dato
 -- crudo es intercambiable y la salida oficial es reproducible.
 -- ---------------------------------------------------------------------------
-CREATE TABLE elementos (
+CREATE TABLE IF NOT EXISTS elementos (
   id              SERIAL PRIMARY KEY,
   capa_id         INTEGER REFERENCES capas(id) ON DELETE CASCADE,
   nombre          TEXT,
@@ -51,9 +60,9 @@ CREATE TABLE elementos (
   actualizado_en  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_elementos_geom  ON elementos USING GIST (geom);
-CREATE INDEX idx_elementos_capa  ON elementos (capa_id);
-CREATE INDEX idx_elementos_props ON elementos USING GIN (propiedades);
+CREATE INDEX IF NOT EXISTS idx_elementos_geom  ON elementos USING GIST (geom);
+CREATE INDEX IF NOT EXISTS idx_elementos_capa  ON elementos (capa_id);
+CREATE INDEX IF NOT EXISTS idx_elementos_props ON elementos USING GIN (propiedades);
 
 CREATE OR REPLACE FUNCTION tocar_actualizado_en() RETURNS TRIGGER AS $$
 BEGIN
@@ -62,32 +71,41 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_elementos_actualizado ON elementos;
 CREATE TRIGGER trg_elementos_actualizado
   BEFORE UPDATE ON elementos
   FOR EACH ROW EXECUTE FUNCTION tocar_actualizado_en();
 
 -- ---------------------------------------------------------------------------
--- Rasters (Fase 2): registro de ortofotos / satelital convertidas a COG.
+-- Rasters: ortofotos de dron y satelital, convertidas a COG.
 -- ---------------------------------------------------------------------------
-CREATE TABLE rasters (
+CREATE TABLE IF NOT EXISTS rasters (
   id         SERIAL PRIMARY KEY,
   nombre     TEXT NOT NULL,
-  archivo    TEXT,                              -- ruta dentro de /datos/rasters
-  estado     TEXT NOT NULL DEFAULT 'pendiente', -- pendiente|procesando|listo|error
+  archivo    TEXT,
+  estado     TEXT NOT NULL DEFAULT 'pendiente',  -- pendiente|procesando|listo|error
   mensaje    TEXT,
-  bounds     DOUBLE PRECISION[],                -- [oeste, sur, este, norte] en 4326
+  bounds     DOUBLE PRECISION[],                 -- [oeste, sur, este, norte] en 4326
   creado_en  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS orden    INTEGER;
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS visible  BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS opacidad REAL NOT NULL DEFAULT 1;
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS autor    TEXT;
+UPDATE rasters SET orden = id WHERE orden IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- Vista oficial Colombia -- MAGNA-SIRGAS / Origen-Nacional (EPSG:9377),
 -- proyeccion oficial segun Resolucion 471 de 2020 del IGAC.
 --
 -- Las medidas se calculan aqui, en PostGIS y sobre la proyeccion metrica
--- oficial. Nunca desde el navegador: Turf solo da feedback visual al dibujar.
+-- oficial. Nunca desde el navegador: alli solo se estima para el rotulo en
+-- vivo mientras se dibuja.
 -- ST_Length devuelve 0 en poligonos y ST_Area devuelve 0 en lineas; se dejan
 -- ambas columnas para que el export sea homogeneo.
 -- ---------------------------------------------------------------------------
+DROP VIEW IF EXISTS v_elementos_oficial_co;
 CREATE VIEW v_elementos_oficial_co AS
 SELECT
   e.id,
@@ -99,19 +117,23 @@ SELECT
   e.creado_en,
   ST_Transform(e.geom, 9377) AS geom_9377,
   GeometryType(e.geom)       AS tipo_geometria,
-  ROUND(ST_Length(ST_Transform(e.geom, 9377))::numeric, 2) AS longitud_m,
-  ROUND(ST_Area(ST_Transform(e.geom, 9377))::numeric, 2)   AS area_m2,
+  ROUND(ST_Length(ST_Transform(e.geom, 9377))::numeric, 2)    AS longitud_m,
+  ROUND(ST_Area(ST_Transform(e.geom, 9377))::numeric, 2)      AS area_m2,
   ROUND(ST_Perimeter(ST_Transform(e.geom, 9377))::numeric, 2) AS perimetro_m
 FROM elementos e
 LEFT JOIN capas c ON c.id = e.capa_id;
 
 -- ---------------------------------------------------------------------------
--- Capas iniciales para respuesta sismica.
+-- Capas iniciales para respuesta sismica. Solo en una base recien creada:
+-- si el equipo ya borro alguna, no debe reaparecer en el siguiente despliegue.
 -- ---------------------------------------------------------------------------
-INSERT INTO capas (nombre, color) VALUES
-  ('Danos en edificaciones', '#e63946'),
-  ('Albergues',              '#2a9d8f'),
-  ('Vias bloqueadas',        '#f4a261'),
-  ('Puntos de atencion',     '#457b9d'),
-  ('Zonas de riesgo',        '#9d4edd'),
-  ('General',                '#6c757d');
+INSERT INTO capas (nombre, color, orden)
+SELECT * FROM (VALUES
+  ('Danos en edificaciones', '#e63946', 1),
+  ('Albergues',              '#2a9d8f', 2),
+  ('Vias bloqueadas',        '#f4a261', 3),
+  ('Puntos de atencion',     '#457b9d', 4),
+  ('Zonas de riesgo',        '#9d4edd', 5),
+  ('General',                '#6c757d', 6)
+) AS semilla(nombre, color, orden)
+WHERE NOT EXISTS (SELECT 1 FROM capas);

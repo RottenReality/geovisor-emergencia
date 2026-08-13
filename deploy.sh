@@ -30,6 +30,14 @@ fi
 log "Levantando servicios"
 docker compose up -d --build
 
+# El esquema es idempotente y se aplica en cada despliegue: asi las columnas
+# nuevas llegan a una base que ya existe, sin recrearla ni perder datos.
+log "Aplicando esquema"
+set -a; . ./.env; set +a
+until docker exec geo_db pg_isready -U "${POSTGRES_USER:-geovisor}" -q 2>/dev/null; do sleep 2; done
+docker exec -i geo_db psql -U "${POSTGRES_USER:-geovisor}" -d "${POSTGRES_DB:-geovisor}" \
+  -v ON_ERROR_STOP=1 -q < db/init.sql && echo "    esquema al dia"
+
 log "Estado"
 docker compose ps
 

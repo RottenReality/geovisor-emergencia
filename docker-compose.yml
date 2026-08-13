@@ -37,9 +37,12 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-geovisor}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-geovisor}
+      TITILER_URL: http://titiler:8000
     volumes:
       - ./datos:/datos
-    mem_limit: 512m
+    # 1 GB: los 2 workers mas el gdal_translate que corre como subproceso
+    # dentro de este mismo contenedor durante la conversion a COG.
+    mem_limit: 1g
     depends_on:
       db:
         condition: service_healthy
@@ -49,6 +52,26 @@ services:
       timeout: 6s
       retries: 5
       start_period: 20s
+    networks: [geo]
+
+  # Servidor de teselas para COG. SIN puertos publicados: solo el backend le
+  # habla, por la red interna. Que el navegador pudiera pasarle una url
+  # arbitraria seria un SSRF contra el propio servidor.
+  titiler:
+    image: ghcr.io/developmentseed/titiler:latest
+    container_name: geo_titiler
+    restart: unless-stopped
+    environment:
+      # Solo lectura local: sin salidas de red desde GDAL.
+      GDAL_CACHEMAX: "128"
+      GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
+      VSI_CACHE: "TRUE"
+      VSI_CACHE_SIZE: "5000000"
+      MOSAIC_CONCURRENCY: "1"
+      WEB_CONCURRENCY: "1"
+    volumes:
+      - ./datos:/datos:ro
+    mem_limit: 512m
     networks: [geo]
 
   caddy:

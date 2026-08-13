@@ -17,6 +17,9 @@ COOKIE_NOMBRE = "geo_sesion"
 DIR_DATOS = os.environ.get("DIR_DATOS", "/datos")
 DIR_RASTERS = os.path.join(DIR_DATOS, "rasters")
 
+# TiTiler vive solo en la red interna de Docker: el navegador nunca lo alcanza.
+TITILER_URL = os.environ.get("TITILER_URL", "http://titiler:8000")
+
 # EPSG oficial de Colombia: MAGNA-SIRGAS / Origen-Nacional
 # (Resolucion 471 de 2020, IGAC).
 SRID_OFICIAL_CO = 9377

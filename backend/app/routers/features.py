@@ -1,4 +1,4 @@
-"""Elementos vectoriales: alta, edicion, borrado y teselas vectoriales."""
+"""Elementos vectoriales: alta, consulta, edicion, borrado y teselas."""
 import json
 from typing import Any
 
@@ -25,42 +25,6 @@ class ElementoParche(BaseModel):
     geometria: dict[str, Any] | None = None
 
 
-class CapaEntrada(BaseModel):
-    nombre: str
-    color: str = "#e63946"
-
-
-# ---------------------------------------------------------------------------
-# Capas
-# ---------------------------------------------------------------------------
-@router.get("/capas")
-async def listar_capas():
-    filas = await db.pool().fetch(
-        """
-        SELECT c.id, c.nombre, c.tipo, c.color, c.visible,
-               COUNT(e.id) AS total
-        FROM capas c
-        LEFT JOIN elementos e ON e.capa_id = c.id
-        GROUP BY c.id
-        ORDER BY c.id
-        """
-    )
-    return [dict(f) for f in filas]
-
-
-@router.post("/capas", status_code=201)
-async def crear_capa(capa: CapaEntrada):
-    fila = await db.pool().fetchrow(
-        "INSERT INTO capas (nombre, color) VALUES ($1, $2) RETURNING id, nombre, color, visible",
-        capa.nombre,
-        capa.color,
-    )
-    return dict(fila)
-
-
-# ---------------------------------------------------------------------------
-# Elementos
-# ---------------------------------------------------------------------------
 @router.get("/features")
 async def listar_features(capa_id: int | None = None, limite: int = 5000):
     """FeatureCollection en 4326. Para dibujar en pantalla se usan las teselas;
@@ -95,6 +59,47 @@ async def listar_features(capa_id: int | None = None, limite: int = 5000):
             }
             for f in filas
         ],
+    }
+
+
+@router.get("/features/{id_elemento}")
+async def detalle_feature(id_elemento: int):
+    """Ficha completa de un elemento, con las medidas oficiales en 9377.
+
+    Los atributos NO viajan dentro de las teselas: hacerlo las engordaria y en
+    campo el ancho de banda es el recurso escaso. Se piden solo al seleccionar.
+    """
+    fila = await db.pool().fetchrow(
+        """
+        SELECT v.id, v.nombre, v.capa, v.capa_id, v.autor, v.propiedades,
+               v.creado_en, v.tipo_geometria,
+               v.longitud_m, v.area_m2, v.perimetro_m,
+               ST_AsGeoJSON(ST_Transform(v.geom_9377, 4326)) AS geom,
+               ARRAY[ST_XMin(v.geom_9377), ST_YMin(v.geom_9377),
+                     ST_XMax(v.geom_9377), ST_YMax(v.geom_9377)] AS caja_9377
+        FROM v_elementos_oficial_co v
+        WHERE v.id = $1
+        """,
+        id_elemento,
+    )
+    if fila is None:
+        raise HTTPException(status_code=404, detail="Elemento no encontrado")
+
+    return {
+        "id": fila["id"],
+        "nombre": fila["nombre"],
+        "capa": fila["capa"],
+        "capa_id": fila["capa_id"],
+        "autor": fila["autor"],
+        "creado_en": fila["creado_en"].isoformat(),
+        "tipo_geometria": fila["tipo_geometria"],
+        "medidas": {
+            "longitud_m": float(fila["longitud_m"] or 0),
+            "area_m2": float(fila["area_m2"] or 0),
+            "perimetro_m": float(fila["perimetro_m"] or 0),
+        },
+        "propiedades": json.loads(fila["propiedades"]),
+        "geometria": json.loads(fila["geom"]),
     }
 
 
@@ -151,15 +156,12 @@ async def borrar_feature(id_elemento: int):
     return Response(status_code=204)
 
 
-# ---------------------------------------------------------------------------
-# Teselas vectoriales
-# ---------------------------------------------------------------------------
 @router.get("/tiles/{z}/{x}/{y}.pbf")
 async def tesela(z: int, x: int, y: int):
     """Teselas MVT generadas en PostGIS.
 
-    Es lo que permite que el visor aguante decenas de miles de elementos en un
-    celular: el navegador solo recibe lo que cabe en pantalla, ya simplificado.
+    Llevan lo minimo para dibujar y seleccionar: id, capa y color. Los
+    atributos se consultan aparte, al abrir la ficha.
     """
     if not 0 <= z <= 22:
         raise HTTPException(status_code=400, detail="Zoom fuera de rango")
@@ -172,15 +174,12 @@ async def tesela(z: int, x: int, y: int):
         f AS (
           SELECT e.id,
                  e.capa_id,
-                 e.nombre,
                  COALESCE(c.color, '#e63946') AS color,
-                 GeometryType(e.geom) AS tipo,
                  ST_AsMVTGeom(ST_Transform(e.geom, 3857), b.env, 4096, 64, true) AS geom
           FROM elementos e
           CROSS JOIN b
           LEFT JOIN capas c ON c.id = e.capa_id
-          WHERE c.visible IS NOT FALSE
-            AND e.geom && ST_Transform(b.env, 4326)
+          WHERE e.geom && ST_Transform(b.env, 4326)
         )
         SELECT ST_AsMVT(f, 'elementos', 4096, 'geom')
         FROM f WHERE geom IS NOT NULL

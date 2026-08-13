@@ -55,7 +55,9 @@ async def subir_vector(
     async with db.pool().acquire() as conexion:
         async with conexion.transaction():
             capa_id = await conexion.fetchval(
-                "INSERT INTO capas (nombre, color) VALUES ($1, $2) RETURNING id",
+                "INSERT INTO capas (nombre, color, orden) "
+                "VALUES ($1, $2, COALESCE((SELECT MAX(orden) + 1 FROM capas), 1)) "
+                "RETURNING id",
                 nombre_capa,
                 color,
             )

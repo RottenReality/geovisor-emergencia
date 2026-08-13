@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel
 
 from . import auth, config, db
-from .routers import export, features, uploads
+from .routers import capas, export, features, rasters, uploads
 
 
 @asynccontextmanager
@@ -79,6 +79,8 @@ async def sesion(request: Request):
     return {"autenticado": True, "autor": datos.get("autor")}
 
 
+app.include_router(capas.router)
 app.include_router(features.router)
+app.include_router(rasters.router)
 app.include_router(uploads.router)
 app.include_router(export.router)
