@@ -33,6 +33,15 @@ EXTENSIONES = {
     "vector": (".geojson", ".json"),
 }
 
+# Los rasters se leen en trozos con GDAL, asi que su tamano solo lo limita el
+# disco. Un GeoJSON, en cambio, hay que parsearlo entero en memoria, y en
+# Python un archivo ocupa varias veces su peso una vez convertido en objetos:
+# 100 MB de texto ya rondan el limite del contenedor.
+MAX_POR_TIPO = {
+    "raster": MAX_TAMANO,
+    "vector": 100 * 1024 * 1024,
+}
+
 
 class NuevaSubida(BaseModel):
     archivo: str
@@ -76,6 +85,17 @@ async def crear(datos: NuevaSubida, sesion: dict = Depends(requiere_sesion)):
     if not datos.archivo.lower().endswith(EXTENSIONES[datos.tipo]):
         permitidas = ", ".join(EXTENSIONES[datos.tipo])
         raise HTTPException(status_code=400, detail=f"Para {datos.tipo} se admite: {permitidas}")
+
+    tope = MAX_POR_TIPO[datos.tipo]
+    if datos.tamano > tope:
+        raise HTTPException(
+            status_code=413,
+            detail=f"El maximo para {datos.tipo} es {tope // 1024**2} MB y este archivo "
+                   f"pesa {datos.tamano // 1024**2} MB. Divide la capa en partes "
+                   f"(en QGIS: Vectorial > Herramientas de investigacion > Dividir capa vectorial)."
+                   if datos.tipo == "vector" else
+                   f"El maximo es {tope // 1024**3} GB y este archivo pesa "
+                   f"{datos.tamano // 1024**3} GB.")
 
     os.makedirs(config.DIR_PARCIALES, exist_ok=True)
 
