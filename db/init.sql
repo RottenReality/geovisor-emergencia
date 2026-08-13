@@ -4,6 +4,26 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- ---------------------------------------------------------------------------
+-- EPSG:9377 -- MAGNA-SIRGAS / Origen-Nacional
+--
+-- PROJ 7.2.1 (el que trae postgis:16-3.4) es anterior a la incorporacion de
+-- este codigo al registro EPSG, asi que la base arranca SIN el y cualquier
+-- ST_Transform(geom, 9377) falla con "Cannot find SRID (9377)". Se registra
+-- aqui de forma explicita para no depender de la version de PROJ.
+--
+-- Parametros conforme a la Resolucion 471 de 2020 del IGAC:
+--   Transversa de Mercator, origen 4°N / 73°O, factor de escala 0.9992,
+--   falso este 5.000.000 m, falso norte 2.000.000 m, elipsoide GRS80.
+-- ---------------------------------------------------------------------------
+INSERT INTO spatial_ref_sys (srid, auth_name, auth_srid, srtext, proj4text)
+VALUES (
+  9377, 'EPSG', 9377,
+  'PROJCS["MAGNA-SIRGAS / Origen-Nacional",GEOGCS["MAGNA-SIRGAS",DATUM["Marco_Geocentrico_Nacional_de_Referencia",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",4],PARAMETER["central_meridian",-73],PARAMETER["scale_factor",0.9992],PARAMETER["false_easting",5000000],PARAMETER["false_northing",2000000],UNIT["metre",1],AUTHORITY["EPSG","9377"]]',
+  '+proj=tmerc +lat_0=4 +lon_0=-73 +k=0.9992 +x_0=5000000 +y_0=2000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs'
+)
+ON CONFLICT (srid) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
 -- Capas: agrupan elementos y definen su simbologia en el visor.
 -- ---------------------------------------------------------------------------
 CREATE TABLE capas (
