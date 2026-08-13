@@ -147,6 +147,9 @@ async def _medir_bandas(info: dict, ruta: str) -> list[dict]:
             "indice": b.get("band", i + 1),
             "interp": (b.get("colorInterpretation") or "").lower(),
             "tipo": b.get("type", ""),
+            # Sentinel-2 apilado no declara color pero si nombra las bandas
+            # (B2, B3, B4, B8), y eso basta para identificarlas.
+            "nombre": (b.get("description") or "").strip(),
         }
         for i, b in enumerate(info.get("bands", []))
     ]
@@ -167,30 +170,68 @@ async def _medir_bandas(info: dict, ruta: str) -> list[dict]:
     return bandas
 
 
+# Nombres de banda de Sentinel-2 (y equivalentes de Landsat por si acaso).
+_POR_NOMBRE = {
+    "azul":  ("b2", "blue", "azul", "sr_b2", "b02"),
+    "verde": ("b3", "green", "verde", "sr_b3", "b03"),
+    "rojo":  ("b4", "red", "rojo", "sr_b4", "b04"),
+    "nir":   ("b8", "b8a", "nir", "infrarrojo", "sr_b5", "b08"),
+}
+
+
+def _identificar_bandas(bandas: list[dict]) -> dict:
+    """Averigua que indice es el rojo, el verde, el azul y el infrarrojo.
+
+    Se intenta por interpretacion de color, luego por nombre de banda y, si el
+    archivo no dice nada, se asume el apilado habitual de PlanetScope y
+    Sentinel-2: Azul, Verde, Rojo, NIR.
+    """
+    total = len(bandas)
+
+    por_interp: dict[str, int] = {}
+    for banda in bandas:
+        interp = banda.get("interp", "")
+        if interp in ("red", "green", "blue") and interp not in por_interp:
+            por_interp[interp] = banda["indice"]
+
+    if {"red", "green", "blue"} <= por_interp.keys():
+        rojo, verde, azul = por_interp["red"], por_interp["green"], por_interp["blue"]
+        usadas = {rojo, verde, azul}
+        nir = next((b["indice"] for b in bandas if b["indice"] not in usadas), None)
+        return {"rojo": rojo, "verde": verde, "azul": azul, "nir": nir}
+
+    por_nombre: dict[str, int] = {}
+    for banda in bandas:
+        etiqueta = banda.get("nombre", "").lower()
+        for papel, alias in _POR_NOMBRE.items():
+            if etiqueta in alias and papel not in por_nombre:
+                por_nombre[papel] = banda["indice"]
+    if {"rojo", "verde", "azul"} <= por_nombre.keys():
+        return {"rojo": por_nombre["rojo"], "verde": por_nombre["verde"],
+                "azul": por_nombre["azul"], "nir": por_nombre.get("nir")}
+
+    if total >= 4:
+        return {"rojo": 3, "verde": 2, "azul": 1, "nir": 4}
+    if total == 3:
+        return {"rojo": 1, "verde": 2, "azul": 3, "nir": None}
+    return {"rojo": 1, "verde": 1, "azul": 1, "nir": None}
+
+
 def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
     """Traduce bandas + combinacion a los parametros que entiende TiTiler."""
     if not bandas:
         return {}
 
-    por_interp = {b["interp"]: b["indice"] for b in bandas if b.get("interp")}
-    total = len(bandas)
+    papeles = _identificar_bandas(bandas)
 
-    if combinacion == "gris" or total == 1:
+    if combinacion == "gris" or len(bandas) == 1:
         elegidas = [bandas[0]["indice"]]
-    elif combinacion == "infrarrojo" and total >= 4:
-        rojo = por_interp.get("red", 3)
-        verde = por_interp.get("green", 2)
-        usadas = {por_interp.get("red"), por_interp.get("green"), por_interp.get("blue")}
-        # El infrarrojo suele ser la banda sin interpretacion de color asignada.
-        nir = next((b["indice"] for b in bandas if b["indice"] not in usadas), 4)
-        elegidas = [nir, rojo, verde]
-    elif {"red", "green", "blue"} <= por_interp.keys():
-        elegidas = [por_interp["red"], por_interp["green"], por_interp["blue"]]
-    elif total >= 4:
-        # Convencion de PlanetScope y Sentinel-2 apilado: Azul, Verde, Rojo, NIR.
-        elegidas = [3, 2, 1]
+    elif combinacion == "infrarrojo" and papeles["nir"]:
+        # NIR en el canal rojo: asi la vegetacion sana se ve roja, que es la
+        # lectura estandar de una composicion en falso color.
+        elegidas = [papeles["nir"], papeles["rojo"], papeles["verde"]]
     else:
-        elegidas = [b["indice"] for b in bandas[:3]]
+        elegidas = [papeles["rojo"], papeles["verde"], papeles["azul"]]
 
     plan: dict = {"bidx": elegidas}
 
