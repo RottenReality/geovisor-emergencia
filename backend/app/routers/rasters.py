@@ -29,13 +29,42 @@ router = APIRouter(prefix="/api/rasters", dependencies=[Depends(requiere_sesion)
 EXTENSIONES = (".tif", ".tiff", ".cog")
 COMBINACIONES = ("natural", "infrarrojo", "gris")
 
-# TiTiler cambio la forma de sus rutas entre versiones. Se prueba la actual y
-# se recuerda cual respondio, en vez de fijar una y fallar en el peor momento.
+# TiTiler cambio la forma de sus rutas entre versiones, asi que se le pregunta
+# cual expone en vez de fijarla a ciegas.
+#
+# Antes esto se resolvia probando rutas y descartando las que daban 404. Era
+# incorrecto: TiTiler tambien responde 404 cuando la tesela cae FUERA del
+# raster, cosa habitual en los bordes. Una peticion de borde justo despues de
+# reiniciar hacia creer que ninguna ruta servia, y ya no se recuperaba.
 _ruta_titiler: str | None = None
-_RUTAS_POSIBLES = (
-    "/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png",
-    "/cog/tiles/{z}/{x}/{y}.png",
+_candado_ruta = asyncio.Lock()
+_RUTAS_CONOCIDAS = (
+    "/cog/tiles/{tileMatrixSetId}/{z}/{x}/{y}.{format}",
+    "/cog/tiles/{tileMatrixSetId}/{z}/{x}/{y}",
+    "/cog/tiles/{z}/{x}/{y}.{format}",
+    "/cog/tiles/{z}/{x}/{y}",
 )
+
+
+async def _resolver_ruta_teselas() -> str:
+    """Descubre la plantilla de teselas leyendo el esquema OpenAPI de TiTiler."""
+    global _ruta_titiler
+    async with _candado_ruta:
+        if _ruta_titiler:
+            return _ruta_titiler
+
+        respuesta = await _cliente.get(f"{config.TITILER_URL}/api", timeout=20.0)
+        respuesta.raise_for_status()
+        rutas = set(respuesta.json().get("paths", {}))
+
+        for plantilla in _RUTAS_CONOCIDAS:
+            if plantilla in rutas:
+                _ruta_titiler = (plantilla
+                                 .replace("{tileMatrixSetId}", "WebMercatorQuad")
+                                 .replace("{format}", "png"))
+                return _ruta_titiler
+
+        raise RuntimeError(f"TiTiler no expone ninguna ruta de teselas conocida: {sorted(rutas)}")
 
 _cliente = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
 
@@ -363,8 +392,6 @@ async def borrar(id_raster: int):
 
 @router.get("/{id_raster}/tiles/{z}/{x}/{y}.png")
 async def tesela(id_raster: int, z: int, x: int, y: int, c: str | None = None):
-    global _ruta_titiler
-
     fila = await db.pool().fetchrow(
         "SELECT archivo, bandas, combinacion FROM rasters WHERE id=$1 AND estado='listo'",
         id_raster)
@@ -374,31 +401,25 @@ async def tesela(id_raster: int, z: int, x: int, y: int, c: str | None = None):
     combinacion = c if c in COMBINACIONES else fila["combinacion"]
     bandas = json.loads(fila["bandas"] or "[]")
     ruta_local = os.path.join(config.DIR_RASTERS, os.path.basename(fila["archivo"]))
-
     parametros: dict = {"url": ruta_local, **_plan_de_pintado(bandas, combinacion)}
-    candidatas = [_ruta_titiler] if _ruta_titiler else list(_RUTAS_POSIBLES)
 
-    for plantilla in candidatas:
-        destino = config.TITILER_URL + plantilla.format(z=z, x=x, y=y)
-        try:
-            respuesta = await _cliente.get(destino, params=parametros)
-        except httpx.HTTPError as excepcion:
-            raise HTTPException(status_code=502, detail=f"TiTiler no responde: {excepcion}") from excepcion
+    try:
+        plantilla = await _resolver_ruta_teselas()
+        respuesta = await _cliente.get(
+            config.TITILER_URL + plantilla.format(z=z, x=x, y=y), params=parametros)
+    except (httpx.HTTPError, RuntimeError) as excepcion:
+        raise HTTPException(status_code=502, detail=f"TiTiler no responde: {excepcion}") from excepcion
 
-        if respuesta.status_code == 404 and _ruta_titiler is None:
-            continue   # ruta equivocada para esta version de TiTiler; probar la otra
-        _ruta_titiler = plantilla
+    if respuesta.status_code >= 500:
+        raise HTTPException(status_code=502,
+                            detail=f"No se pudo pintar la tesela: {respuesta.text[:300]}")
 
-        if respuesta.status_code >= 500:
-            detalle = respuesta.text[:300]
-            raise HTTPException(status_code=502, detail=f"No se pudo pintar la tesela: {detalle}")
-
-        return Response(
-            content=respuesta.content,
-            status_code=respuesta.status_code,
-            media_type=respuesta.headers.get("content-type", "image/png"),
-            # Los rasters no cambian una vez convertidos: si se pueden cachear.
-            headers={"Cache-Control": "public, max-age=86400"},
-        )
-
-    raise HTTPException(status_code=502, detail="Ninguna ruta de TiTiler respondio")
+    # Un 404 aqui significa que la tesela cae fuera del raster, cosa normal en
+    # los bordes: se deja pasar tal cual y el mapa simplemente no pinta nada.
+    return Response(
+        content=respuesta.content,
+        status_code=respuesta.status_code,
+        media_type=respuesta.headers.get("content-type", "image/png"),
+        # Los rasters no cambian una vez convertidos: si se pueden cachear.
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
