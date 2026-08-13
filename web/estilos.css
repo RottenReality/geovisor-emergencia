@@ -1,0 +1,273 @@
+/* Geovisor de emergencia -- chrome deliberadamente desaturado.
+   Regla rectora: lo unico saturado en pantalla debe ser el dato. Si la
+   interfaz compite en color con las capas, los danos se leen mal. */
+
+:root {
+  --tinta:    #0e1319;
+  --tinta-2:  #161e27;
+  --tinta-3:  #1e2833;
+  --borde:    #2b3846;
+  --papel:    #eef2f6;
+  --papel-2:  #93a1b1;
+  --alerta:   #ff4d3d;
+  --ok:       #35c48f;
+
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --rail: 320px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: var(--sans);
+  background: var(--tinta);
+  color: var(--papel);
+  overscroll-behavior: none;
+}
+
+#mapa { position: absolute; inset: 0; }
+
+/* --- Rail lateral ------------------------------------------------------- */
+#rail {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: var(--rail);
+  background: var(--tinta);
+  border-right: 1px solid var(--borde);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  transition: transform .18s ease;
+}
+#rail.oculto { transform: translateX(calc(-1 * var(--rail))); }
+
+.marca {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--borde);
+}
+.marca h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+/* Insignia de proyeccion: la razon de ser del visor en Colombia es entregar
+   medidas en la proyeccion oficial, asi que se declara siempre a la vista. */
+.insignia {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 7px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  color: var(--papel-2);
+  background: var(--tinta-3);
+  border: 1px solid var(--borde);
+  border-radius: 3px;
+}
+
+.seccion {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--borde);
+}
+.seccion:last-child { border-bottom: 0; }
+.seccion > h2 {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--papel-2);
+}
+
+#cuerpo-rail { overflow-y: auto; flex: 1; }
+
+/* --- Controles ---------------------------------------------------------- */
+.fila { display: flex; gap: 6px; }
+.fila > * { flex: 1; }
+
+button, .boton {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--papel);
+  background: var(--tinta-2);
+  border: 1px solid var(--borde);
+  border-radius: 5px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: background .12s ease, border-color .12s ease;
+}
+button:hover, .boton:hover { background: var(--tinta-3); border-color: #3c4c5e; }
+button:focus-visible, .boton:focus-visible,
+input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--ok);
+  outline-offset: 1px;
+}
+button[aria-pressed="true"] {
+  background: var(--alerta);
+  border-color: var(--alerta);
+  color: #fff;
+}
+button:disabled { opacity: .45; cursor: not-allowed; }
+
+input[type="text"], input[type="password"], input[type="file"], select {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--papel);
+  background: var(--tinta-2);
+  border: 1px solid var(--borde);
+  border-radius: 5px;
+  padding: 8px 9px;
+}
+label {
+  display: block;
+  font-size: 11.5px;
+  color: var(--papel-2);
+  margin: 0 0 4px;
+}
+.campo { margin-bottom: 10px; }
+
+/* --- Capas -------------------------------------------------------------- */
+.capa {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.capa input { width: auto; margin: 0; accent-color: var(--ok); }
+.punto-color {
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.capa .nombre { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.capa .conteo {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--papel-2);
+}
+
+/* --- Medicion en vivo (elemento distintivo) ----------------------------- */
+#medicion {
+  position: absolute;
+  bottom: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  gap: 18px;
+  padding: 9px 16px;
+  background: rgba(14, 19, 25, .94);
+  border: 1px solid var(--borde);
+  border-left: 3px solid var(--alerta);
+  border-radius: 5px;
+  z-index: 20;
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+}
+#medicion.visible { display: flex; }
+#medicion .dato { display: flex; flex-direction: column; gap: 2px; }
+#medicion .rotulo {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--papel-2);
+}
+#medicion .valor {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;  /* los digitos no saltan al actualizar */
+  font-weight: 600;
+}
+
+/* --- Modal -------------------------------------------------------------- */
+.telon {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 9, 13, .7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  padding: 16px;
+}
+.telon.visible { display: flex; }
+.modal {
+  width: 100%;
+  max-width: 420px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--tinta);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  padding: 18px;
+}
+.modal h2 { margin: 0 0 14px; font-size: 15px; }
+.par { display: flex; gap: 6px; margin-bottom: 6px; }
+.par input { flex: 1; }
+.par button { flex: 0 0 34px; padding: 8px 0; }
+
+/* --- Avisos ------------------------------------------------------------- */
+#aviso {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 9px 15px;
+  border-radius: 5px;
+  font-size: 13px;
+  background: var(--tinta-2);
+  border: 1px solid var(--borde);
+  border-left: 3px solid var(--ok);
+  z-index: 50;
+  display: none;
+  max-width: min(90vw, 460px);
+}
+#aviso.visible { display: block; }
+#aviso.error { border-left-color: var(--alerta); }
+
+/* --- Alternador del rail ------------------------------------------------ */
+#alternar {
+  position: absolute;
+  top: 12px;
+  left: calc(var(--rail) + 12px);
+  z-index: 11;
+  width: 38px; height: 38px;
+  padding: 0;
+  font-size: 16px;
+  transition: left .18s ease;
+}
+#rail.oculto ~ #alternar { left: 12px; }
+
+.maplibregl-ctrl-top-right { margin-top: 6px; }
+
+/* --- Movil: el rail pasa a hoja inferior -------------------------------- */
+@media (max-width: 720px) {
+  :root { --rail: 100%; }
+  #rail {
+    top: auto;
+    height: 62vh;
+    border-right: 0;
+    border-top: 1px solid var(--borde);
+    border-radius: 12px 12px 0 0;
+  }
+  #rail.oculto { transform: translateY(100%); }
+  #alternar { left: 12px; top: auto; bottom: calc(62vh + 12px); }
+  #rail.oculto ~ #alternar { left: 12px; bottom: 12px; }
+  #medicion { bottom: calc(62vh + 12px); }
+  #rail.oculto ~ #medicion { bottom: 64px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

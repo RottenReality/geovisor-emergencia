@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Geovisor de Emergencia</title>
+<link rel="stylesheet" href="/vendor/maplibre-gl.css">
+<link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+
+<div id="mapa"></div>
+
+<aside id="rail">
+  <div class="marca">
+    <h1>Geovisor de Emergencia</h1>
+    <span class="insignia">EPSG:9377 &middot; MAGNA-SIRGAS</span>
+  </div>
+
+  <div id="cuerpo-rail">
+
+    <section class="seccion">
+      <h2>Registrar en el mapa</h2>
+      <div class="fila">
+        <button id="dibujar-punto"    aria-pressed="false">Punto</button>
+        <button id="dibujar-linea"    aria-pressed="false">Linea</button>
+        <button id="dibujar-poligono" aria-pressed="false">Poligono</button>
+      </div>
+      <div class="fila" style="margin-top:6px">
+        <button id="finalizar" disabled>Finalizar</button>
+        <button id="cancelar"  disabled>Cancelar</button>
+      </div>
+    </section>
+
+    <section class="seccion">
+      <h2>Capas</h2>
+      <div id="lista-capas"></div>
+      <button id="refrescar" style="margin-top:10px">Actualizar datos</button>
+    </section>
+
+    <section class="seccion">
+      <h2>Mapa base</h2>
+      <div class="fila">
+        <button id="base-calles"   aria-pressed="true">Calles</button>
+        <button id="base-satelite" aria-pressed="false">Satelite</button>
+      </div>
+    </section>
+
+    <section class="seccion">
+      <h2>Cargar capa</h2>
+      <div class="campo">
+        <label for="archivo">Archivo GeoJSON (EPSG:4326)</label>
+        <input type="file" id="archivo" accept=".geojson,.json">
+      </div>
+      <div class="campo">
+        <label for="nombre-capa">Nombre de la capa</label>
+        <input type="text" id="nombre-capa" placeholder="Ej: Manzanas afectadas">
+      </div>
+      <button id="subir">Cargar al visor</button>
+    </section>
+
+    <section class="seccion">
+      <h2>Descargar</h2>
+      <div class="fila" style="flex-direction:column">
+        <button id="exportar-9377">GeoJSON oficial Colombia (9377)</button>
+        <button id="exportar-4326" style="margin-top:6px">GeoJSON estandar (WGS84)</button>
+      </div>
+    </section>
+
+    <section class="seccion">
+      <h2>Sesion</h2>
+      <p style="margin:0 0 10px;font-size:12.5px;color:var(--papel-2)">
+        Conectado como <strong id="quien" style="color:var(--papel)">…</strong>
+      </p>
+      <button id="salir">Cerrar sesion</button>
+    </section>
+
+  </div>
+</aside>
+
+<button id="alternar" aria-label="Mostrar u ocultar el panel">&#9776;</button>
+
+<div id="medicion" aria-live="polite">
+  <div class="dato">
+    <span class="rotulo">Longitud</span>
+    <span class="valor" id="med-longitud">0 m</span>
+  </div>
+  <div class="dato">
+    <span class="rotulo">Area</span>
+    <span class="valor" id="med-area">0 m&sup2;</span>
+  </div>
+  <div class="dato">
+    <span class="rotulo">Vertices</span>
+    <span class="valor" id="med-vertices">0</span>
+  </div>
+</div>
+
+<div id="aviso" role="status"></div>
+
+<!-- Modal de atributos -->
+<div class="telon" id="telon-atributos">
+  <div class="modal">
+    <h2 id="titulo-atributos">Datos del elemento</h2>
+    <div class="campo">
+      <label for="attr-nombre">Nombre</label>
+      <input type="text" id="attr-nombre" placeholder="Ej: Vivienda con colapso parcial">
+    </div>
+    <div class="campo">
+      <label for="attr-capa">Capa</label>
+      <select id="attr-capa"></select>
+    </div>
+    <div class="campo">
+      <label>Atributos adicionales</label>
+      <div id="pares"></div>
+      <button id="agregar-par" style="margin-top:4px">+ Agregar atributo</button>
+    </div>
+    <div class="fila" style="margin-top:14px">
+      <button id="guardar-elemento" style="background:var(--ok);border-color:var(--ok);color:#08120d;font-weight:600">Guardar</button>
+      <button id="descartar-elemento">Descartar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/vendor/maplibre-gl.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

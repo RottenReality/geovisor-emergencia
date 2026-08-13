@@ -1,0 +1,36 @@
+{$DOMINIO} {
+	encode zstd gzip
+
+	# Permite subir ortofotos y shapefiles grandes (Fase 2).
+	request_body {
+		max_size 500MB
+	}
+
+	# API y chequeo de salud -> FastAPI
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+	handle /health {
+		reverse_proxy api:8080
+	}
+
+	# Visor estatico. Sin build step: los archivos de ./web se sirven tal cual.
+	handle {
+		root * /srv/web
+		try_files {path} {path}/ /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	log {
+		output file /data/acceso.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+	}
+}

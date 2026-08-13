@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Entrar &middot; Geovisor de Emergencia</title>
+<link rel="stylesheet" href="/estilos.css">
+<style>
+  body { display: grid; place-items: center; padding: 20px; }
+  .entrada { width: 100%; max-width: 360px; }
+  .entrada h1 { margin: 0 0 4px; font-size: 19px; letter-spacing: -.015em; }
+  .entrada p.sub { margin: 0 0 20px; font-size: 13px; color: var(--papel-2); }
+  .entrada form {
+    background: var(--tinta-2);
+    border: 1px solid var(--borde);
+    border-radius: 8px;
+    padding: 18px;
+  }
+  .entrada button { width: 100%; margin-top: 4px; padding: 10px; font-weight: 600; }
+  #error {
+    display: none;
+    margin-top: 12px;
+    padding: 9px 11px;
+    font-size: 12.5px;
+    background: rgba(255, 77, 61, .1);
+    border-left: 3px solid var(--alerta);
+    border-radius: 4px;
+  }
+  #error.visible { display: block; }
+</style>
+</head>
+<body>
+  <main class="entrada">
+    <h1>Geovisor de Emergencia</h1>
+    <p class="sub">Acceso restringido al equipo de respuesta.</p>
+
+    <form id="formulario">
+      <div class="campo">
+        <label for="autor">Tu nombre</label>
+        <input type="text" id="autor" name="autor" autocomplete="name"
+               placeholder="Para saber quien registro cada dato">
+      </div>
+      <div class="campo">
+        <label for="clave">Clave del equipo</label>
+        <input type="password" id="clave" name="clave" required
+               autocomplete="current-password" autofocus>
+      </div>
+      <button type="submit" id="enviar">Entrar</button>
+      <div id="error" role="alert"></div>
+    </form>
+
+    <p class="sub" style="margin-top:16px">
+      <span class="insignia">EPSG:9377 &middot; MAGNA-SIRGAS</span>
+    </p>
+  </main>
+
+<script>
+const formulario = document.getElementById('formulario');
+const error = document.getElementById('error');
+const enviar = document.getElementById('enviar');
+
+formulario.addEventListener('submit', async (evento) => {
+  evento.preventDefault();
+  error.classList.remove('visible');
+  enviar.disabled = true;
+  enviar.textContent = 'Verificando…';
+
+  try {
+    const respuesta = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clave: document.getElementById('clave').value,
+        autor: document.getElementById('autor').value
+      })
+    });
+
+    if (respuesta.ok) {
+      location.href = '/';
+      return;
+    }
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    error.textContent = cuerpo.detail || 'No se pudo entrar.';
+    error.classList.add('visible');
+  } catch {
+    error.textContent = 'Sin conexion con el servidor.';
+    error.classList.add('visible');
+  }
+
+  enviar.disabled = false;
+  enviar.textContent = 'Entrar';
+});
+</script>
+</body>
+</html>

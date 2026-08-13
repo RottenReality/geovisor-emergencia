@@ -1,0 +1,6 @@
+# Los scripts y configs corren en Linux: forzar LF aunque se editen en Windows.
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.yml  text eol=lf
+Caddyfile text eol=lf
+Dockerfile text eol=lf
