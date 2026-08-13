@@ -71,7 +71,10 @@ services:
       WEB_CONCURRENCY: "1"
     volumes:
       - ./datos:/datos:ro
-    mem_limit: 512m
+    # 1 GB: con 512m se quedaba al borde del limite solo con medir una escena
+    # de 476 MB, y las Skysat rondan 1,8 GB. El limite es un techo, no una
+    # reserva: en reposo consume mucho menos.
+    mem_limit: 1g
     networks: [geo]
 
   caddy:
