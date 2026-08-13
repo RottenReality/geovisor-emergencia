@@ -78,10 +78,14 @@ function pintar() {
         ${item.esRaster ? (item.num_bandas > 1 ? `
           <label>Combinación de bandas (${item.num_bandas} bandas)</label>
           <select data-accion="combinacion">
-            <option value="natural"    ${item.combinacion === 'natural' ? 'selected' : ''}>Color natural</option>
+            <option value="natural" ${item.combinacion === 'natural' ? 'selected' : ''}>
+              ${item.tiene_visible ? 'Color natural' : 'Predeterminada'}</option>
             ${item.admite_infrarrojo ? `<option value="infrarrojo" ${item.combinacion === 'infrarrojo' ? 'selected' : ''}>Falso color (infrarrojo)</option>` : ''}
-            <option value="gris"       ${item.combinacion === 'gris' ? 'selected' : ''}>Una banda en gris</option>
-          </select>` : '') : `
+            ${item.admite_swir ? `<option value="swir" ${item.combinacion === 'swir' ? 'selected' : ''}>SWIR (suelo y humedad)</option>` : ''}
+            <option value="gris" ${item.combinacion === 'gris' ? 'selected' : ''}>Una banda en gris</option>
+          </select>
+          ${item.tiene_visible ? '' :
+            '<p class="nota">Sin bandas visibles: se muestra una composición SWIR/NIR, útil para suelo desnudo y humedad.</p>'}` : '') : `
           <label>Color</label>
           <input type="color" value="${escapar(item.color)}" data-accion="color">`}
         <div class="fila">

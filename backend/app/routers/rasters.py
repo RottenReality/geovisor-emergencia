@@ -27,7 +27,7 @@ from ..auth import requiere_sesion
 router = APIRouter(prefix="/api/rasters", dependencies=[Depends(requiere_sesion)])
 
 EXTENSIONES = (".tif", ".tiff", ".cog")
-COMBINACIONES = ("natural", "infrarrojo", "gris")
+COMBINACIONES = ("natural", "infrarrojo", "swir", "gris")
 
 # TiTiler cambio la forma de sus rutas entre versiones, asi que se le pregunta
 # cual expone en vez de fijarla a ciegas.
@@ -172,10 +172,13 @@ async def _medir_bandas(info: dict, ruta: str) -> list[dict]:
 
 # Nombres de banda de Sentinel-2 (y equivalentes de Landsat por si acaso).
 _POR_NOMBRE = {
-    "azul":  ("b2", "blue", "azul", "sr_b2", "b02"),
-    "verde": ("b3", "green", "verde", "sr_b3", "b03"),
-    "rojo":  ("b4", "red", "rojo", "sr_b4", "b04"),
-    "nir":   ("b8", "b8a", "nir", "infrarrojo", "sr_b5", "b08"),
+    "azul":     ("b2", "blue", "azul", "sr_b2", "b02"),
+    "verde":    ("b3", "green", "verde", "sr_b3", "b03"),
+    "rojo":     ("b4", "red", "rojo", "sr_b4", "b04"),
+    "nir":      ("b8", "b8a", "nir", "infrarrojo", "sr_b5", "b08", "b08a"),
+    "bordeojo": ("b5", "b05", "rededge", "b6", "b06", "b7", "b07"),
+    "swir1":    ("b11", "swir1", "sr_b6"),
+    "swir2":    ("b12", "swir2", "sr_b7"),
 }
 
 
@@ -198,7 +201,8 @@ def _identificar_bandas(bandas: list[dict]) -> dict:
         rojo, verde, azul = por_interp["red"], por_interp["green"], por_interp["blue"]
         usadas = {rojo, verde, azul}
         nir = next((b["indice"] for b in bandas if b["indice"] not in usadas), None)
-        return {"rojo": rojo, "verde": verde, "azul": azul, "nir": nir}
+        return {"rojo": rojo, "verde": verde, "azul": azul, "nir": nir,
+                "swir": None, "visible": True}
 
     por_nombre: dict[str, int] = {}
     for banda in bandas:
@@ -206,15 +210,28 @@ def _identificar_bandas(bandas: list[dict]) -> dict:
         for papel, alias in _POR_NOMBRE.items():
             if etiqueta in alias and papel not in por_nombre:
                 por_nombre[papel] = banda["indice"]
+
     if {"rojo", "verde", "azul"} <= por_nombre.keys():
         return {"rojo": por_nombre["rojo"], "verde": por_nombre["verde"],
-                "azul": por_nombre["azul"], "nir": por_nombre.get("nir")}
+                "azul": por_nombre["azul"], "nir": por_nombre.get("nir"),
+                "swir": por_nombre.get("swir2") or por_nombre.get("swir1"),
+                "visible": True}
+
+    # Productos sin ninguna banda visible: los 20 m de Sentinel-2 traen borde
+    # rojo, NIR estrecho y SWIR (B5,B6,B7,B8A,B11,B12). Ahi el color natural no
+    # existe; la lectura util es SWIR/NIR/borde rojo, que separa suelo desnudo,
+    # humedad y vegetacion, justo lo que interesa tras un sismo.
+    swir = por_nombre.get("swir2") or por_nombre.get("swir1")
+    if swir and por_nombre.get("nir"):
+        return {"rojo": swir, "verde": por_nombre["nir"],
+                "azul": por_nombre.get("bordeojo", 1),
+                "nir": por_nombre["nir"], "swir": swir, "visible": False}
 
     if total >= 4:
-        return {"rojo": 3, "verde": 2, "azul": 1, "nir": 4}
+        return {"rojo": 3, "verde": 2, "azul": 1, "nir": 4, "swir": None, "visible": True}
     if total == 3:
-        return {"rojo": 1, "verde": 2, "azul": 3, "nir": None}
-    return {"rojo": 1, "verde": 1, "azul": 1, "nir": None}
+        return {"rojo": 1, "verde": 2, "azul": 3, "nir": None, "swir": None, "visible": True}
+    return {"rojo": 1, "verde": 1, "azul": 1, "nir": None, "swir": None, "visible": True}
 
 
 def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
@@ -226,7 +243,9 @@ def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
 
     if combinacion == "gris" or len(bandas) == 1:
         elegidas = [bandas[0]["indice"]]
-    elif combinacion == "infrarrojo" and papeles["nir"]:
+    elif combinacion == "swir" and papeles["swir"] and papeles["nir"]:
+        elegidas = [papeles["swir"], papeles["nir"], papeles["rojo"]]
+    elif combinacion == "infrarrojo" and papeles["nir"] and papeles["visible"]:
         # NIR en el canal rojo: asi la vegetacion sana se ve roja, que es la
         # lectura estandar de una composicion en falso color.
         elegidas = [papeles["nir"], papeles["rojo"], papeles["verde"]]
@@ -313,9 +332,12 @@ async def listar():
     for f in filas:
         dato = dict(f)
         bandas = json.loads(dato.pop("bandas") or "[]")
+        papeles = _identificar_bandas(bandas) if bandas else {}
         dato["num_bandas"] = len(bandas)
-        # El visor solo necesita saber si puede ofrecer el falso color.
-        dato["admite_infrarrojo"] = len(bandas) >= 4
+        # El visor solo necesita saber que combinaciones ofrecer.
+        dato["admite_infrarrojo"] = bool(papeles.get("nir")) and papeles.get("visible", True)
+        dato["admite_swir"] = bool(papeles.get("swir")) and bool(papeles.get("nir"))
+        dato["tiene_visible"] = papeles.get("visible", True)
         salida.append(dato)
     return salida
 
