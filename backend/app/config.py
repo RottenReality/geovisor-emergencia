@@ -19,6 +19,11 @@ DIR_RASTERS = os.path.join(DIR_DATOS, "rasters")
 # Buzon para escenas grandes: se copian por scp y se importan desde el visor,
 # porque subir 1,8 GB por el navegador es lento y se corta con facilidad.
 DIR_ENTRADA = os.path.join(DIR_DATOS, "entrada")
+# Archivos a medio subir. Viven aqui hasta que llega el ultimo trozo.
+DIR_PARCIALES = os.path.join(DIR_DATOS, "parciales")
+
+# Horas que se conserva una subida sin actividad antes de darla por abandonada.
+HORAS_SUBIDA_ABANDONADA = int(os.environ.get("HORAS_SUBIDA_ABANDONADA", "48"))
 
 # TiTiler vive solo en la red interna de Docker: el navegador nunca lo alcanza.
 # Su imagen sirve en el puerto 80, no en el 8000.

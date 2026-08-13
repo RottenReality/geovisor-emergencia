@@ -1,11 +1,17 @@
 {$DOMINIO} {
 	encode zstd gzip
 
-	# Escenas satelitales completas. Las Skysat rondan 1,8 GB; para esas
-	# conviene mas dejarlas por scp en /datos/entrada e importarlas desde
-	# el visor, pero el limite se deja holgado por si se sube una directa.
+	# Los archivos grandes ya no llegan de una pieza sino en trozos de como
+	# mucho 32 MB, asi que el limite puede ser pequeno. Que lo sea es bueno:
+	# ninguna peticion suelta puede ocupar la API durante minutos.
 	request_body {
-		max_size 2500MB
+		max_size 64MB
+	}
+
+	# Una subida por trozos de 1,8 GB puede durar bastante; que Caddy no corte
+	# la conversacion a mitad.
+	timeouts {
+		read_body 10m
 	}
 
 	# API y chequeo de salud -> FastAPI

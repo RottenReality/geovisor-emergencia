@@ -6,13 +6,13 @@ from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel
 
 from . import auth, config, db
-from .routers import capas, export, features, rasters, uploads
+from .routers import capas, export, features, rasters, subidas, uploads
 
 
 @asynccontextmanager
 async def ciclo_vida(app: FastAPI):
-    os.makedirs(config.DIR_RASTERS, exist_ok=True)
-    os.makedirs(config.DIR_ENTRADA, exist_ok=True)
+    for carpeta in (config.DIR_RASTERS, config.DIR_ENTRADA, config.DIR_PARCIALES):
+        os.makedirs(carpeta, exist_ok=True)
     await db.iniciar()
     yield
     await db.cerrar()
@@ -83,5 +83,6 @@ async def sesion(request: Request):
 app.include_router(capas.router)
 app.include_router(features.router)
 app.include_router(rasters.router)
+app.include_router(subidas.router)
 app.include_router(uploads.router)
 app.include_router(export.router)

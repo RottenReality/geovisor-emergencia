@@ -18,7 +18,7 @@ import shutil
 import uuid
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from .. import config, db
@@ -26,7 +26,6 @@ from ..auth import requiere_sesion
 
 router = APIRouter(prefix="/api/rasters", dependencies=[Depends(requiere_sesion)])
 
-TROZO = 8 * 1024 * 1024          # 8 MB por lectura al recibir el archivo
 EXTENSIONES = (".tif", ".tiff", ".cog")
 COMBINACIONES = ("natural", "infrarrojo", "gris")
 
@@ -54,7 +53,7 @@ class Importacion(BaseModel):
     nombre: str
 
 
-def _nombre_seguro(original: str) -> str:
+def nombre_seguro(original: str) -> str:
     base = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(original or "raster.tif"))
     return f"{uuid.uuid4().hex[:12]}_{base[:60]}"
 
@@ -183,12 +182,14 @@ def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
     return plan
 
 
-async def _procesar(id_raster: int, origen: str, destino: str) -> None:
-    """Corre en segundo plano: valida, convierte a COG si hace falta y publica."""
-    try:
-        await db.pool().execute(
-            "UPDATE rasters SET estado='procesando' WHERE id=$1", id_raster)
+async def procesar_raster(id_raster: int, origen: str, destino: str) -> None:
+    """Valida, convierte a COG si hace falta, mide las bandas y publica.
 
+    La ejecuta el contenedor worker, no la API. Convertir una escena de
+    gigapixeles ocupa CPU durante bastantes minutos, y hacerlo dentro del
+    proceso que atiende la web la dejaria lenta para todo el equipo.
+    """
+    try:
         info = await _inspeccionar(origen)
         if not info.get("coordinateSystem", {}).get("wkt"):
             raise RuntimeError(
@@ -273,80 +274,32 @@ async def disponibles():
 
 
 @router.post("/importar", status_code=202)
-async def importar(datos: Importacion, tareas: BackgroundTasks,
-                   sesion: dict = Depends(requiere_sesion)):
+async def importar(datos: Importacion, sesion: dict = Depends(requiere_sesion)):
+    """Importa un archivo dejado por scp. Solo lo encola: convierte el worker."""
     # basename evita que un ".." saque la lectura de la carpeta de entrada.
     nombre_archivo = os.path.basename(datos.archivo)
-    origen = os.path.join(config.DIR_ENTRADA, nombre_archivo)
-    if not nombre_archivo.lower().endswith(EXTENSIONES) or not os.path.isfile(origen):
+    en_entrada = os.path.join(config.DIR_ENTRADA, nombre_archivo)
+    if not nombre_archivo.lower().endswith(EXTENSIONES) or not os.path.isfile(en_entrada):
         raise HTTPException(status_code=404, detail="No existe ese archivo en la carpeta de entrada")
 
     os.makedirs(config.DIR_RASTERS, exist_ok=True)
-    seguro = _nombre_seguro(nombre_archivo)
-    trabajo = os.path.join(config.DIR_RASTERS, f"entrada_{seguro}")
+    seguro = nombre_seguro(nombre_archivo)
+    origen = os.path.join(config.DIR_RASTERS, f"entrada_{seguro}")
     destino = os.path.join(config.DIR_RASTERS, f"{os.path.splitext(seguro)[0]}.tif")
     # Mover, no copiar: son gigabytes y estan en el mismo volumen.
-    shutil.move(origen, trabajo)
+    shutil.move(en_entrada, origen)
 
     fila = await db.pool().fetchrow(
         """
-        INSERT INTO rasters (nombre, estado, autor, orden)
-        VALUES ($1, 'pendiente', $2, COALESCE((SELECT MAX(orden) + 1 FROM rasters), 1))
+        INSERT INTO rasters (nombre, estado, autor, origen, destino, orden)
+        VALUES ($1, 'pendiente', $2, $3, $4,
+                COALESCE((SELECT MAX(orden) + 1 FROM rasters), 1))
         RETURNING id, nombre, estado, orden
         """,
         datos.nombre.strip() or nombre_archivo,
-        sesion.get("autor"),
+        sesion.get("autor"), origen, destino,
     )
-    tareas.add_task(_procesar, fila["id"], trabajo, destino)
     return dict(fila)
-
-
-@router.post("", status_code=202)
-async def subir(
-    tareas: BackgroundTasks,
-    archivo: UploadFile = File(...),
-    nombre: str = Form(...),
-    sesion: dict = Depends(requiere_sesion),
-):
-    if not (archivo.filename or "").lower().endswith(EXTENSIONES):
-        raise HTTPException(
-            status_code=400,
-            detail="Formato no admitido. Sube un GeoTIFF (.tif) o un COG.")
-
-    os.makedirs(config.DIR_RASTERS, exist_ok=True)
-    seguro = _nombre_seguro(archivo.filename)
-    origen = os.path.join(config.DIR_RASTERS, f"entrada_{seguro}")
-    destino = os.path.join(config.DIR_RASTERS, f"{os.path.splitext(seguro)[0]}.tif")
-
-    # Se escribe por trozos: un .read() completo de una escena de 1,8 GB
-    # reventaria el limite de memoria del contenedor.
-    bytes_escritos = 0
-    try:
-        with open(origen, "wb") as salida:
-            while trozo := await archivo.read(TROZO):
-                salida.write(trozo)
-                bytes_escritos += len(trozo)
-    except Exception as excepcion:
-        if os.path.exists(origen):
-            os.remove(origen)
-        raise HTTPException(status_code=500, detail=f"No se pudo guardar: {excepcion}") from excepcion
-
-    if bytes_escritos == 0:
-        os.remove(origen)
-        raise HTTPException(status_code=400, detail="El archivo llego vacio")
-
-    fila = await db.pool().fetchrow(
-        """
-        INSERT INTO rasters (nombre, estado, autor, orden)
-        VALUES ($1, 'pendiente', $2, COALESCE((SELECT MAX(orden) + 1 FROM rasters), 1))
-        RETURNING id, nombre, estado, orden
-        """,
-        nombre.strip() or archivo.filename,
-        sesion.get("autor"),
-    )
-
-    tareas.add_task(_procesar, fila["id"], origen, destino)
-    return {**dict(fila), "bytes": bytes_escritos}
 
 
 @router.patch("/{id_raster}")

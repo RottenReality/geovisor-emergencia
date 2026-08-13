@@ -40,9 +40,9 @@ services:
       TITILER_URL: http://titiler
     volumes:
       - ./datos:/datos
-    # 1 GB: los 2 workers mas el gdal_translate que corre como subproceso
-    # dentro de este mismo contenedor durante la conversion a COG.
-    mem_limit: 1g
+    # 512 MB basta: la API ya no convierte rasters, solo recibe trozos de
+    # pocos megabytes y los escribe en disco.
+    mem_limit: 512m
     depends_on:
       db:
         condition: service_healthy
@@ -52,6 +52,26 @@ services:
       timeout: 6s
       retries: 5
       start_period: 20s
+    networks: [geo]
+
+  # Convierte los rasters a COG fuera de la API. Una escena de gigapixeles
+  # ocupa CPU durante minutos: dentro del proceso que atiende la web, dejaria
+  # el visor lento para todo el equipo justo cuando mas se necesita.
+  worker:
+    build: ./backend
+    container_name: geo_worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-geovisor}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-geovisor}
+      TITILER_URL: http://titiler
+    command: ["python", "-m", "app.trabajador"]
+    volumes:
+      - ./datos:/datos
+    mem_limit: 1g
+    depends_on:
+      db:
+        condition: service_healthy
     networks: [geo]
 
   # Servidor de teselas para COG. SIN puertos publicados: solo el backend le

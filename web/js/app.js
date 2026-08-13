@@ -8,6 +8,7 @@ import {
 import * as capas from './capas.js';
 import * as dibujo from './dibujo.js';
 import * as ficha from './ficha.js';
+import * as subidas from './subidas.js';
 import { PRIORITARIAS, RESTO, COLOMBIA } from './ciudades.js';
 
 // ---------------------------------------------------------------------------
@@ -100,89 +101,43 @@ $('crear-capa').onclick = async () => {
 // ---------------------------------------------------------------------------
 // Cargas
 // ---------------------------------------------------------------------------
-$('subir-vector').onclick = async () => {
-  const archivo = $('archivo-vector').files[0];
-  const nombre = $('nombre-capa-vector').value.trim();
-  if (!archivo) { avisar('Elige un archivo GeoJSON.', true); return; }
-  if (!nombre) { avisar('Ponle nombre a la capa.', true); return; }
-
-  const boton = $('subir-vector');
-  boton.disabled = true;
-  boton.textContent = 'Cargando…';
-
-  const cuerpo = new FormData();
-  cuerpo.append('archivo', archivo);
-  cuerpo.append('nombre_capa', nombre);
-  cuerpo.append('color', $('nueva-capa-color').value);
-
-  try {
-    const resultado = await api('/api/upload/vector', { method: 'POST', body: cuerpo });
+subidas.alTerminarSubida(async (resultado) => {
+  if (resultado.tipo === 'vector') {
     avisar(`Cargadas ${resultado.insertados} entidades` +
            (resultado.omitidos ? ` · ${resultado.omitidos} omitidas` : '') + '.');
-    $('archivo-vector').value = '';
-    $('nombre-capa-vector').value = '';
     refrescarDatos();
-    await capas.cargar();
-  } catch (error) { avisar(error.message, true); }
+  } else {
+    avisar('Ráster recibido. Se está convirtiendo en segundo plano.');
+  }
+  await capas.cargar();
+});
 
-  boton.disabled = false;
-  boton.textContent = 'Cargar GeoJSON';
-};
+/** Las dos cargas usan el mismo camino: trozos reanudables. */
+async function cargarArchivo({ campoArchivo, campoNombre, boton, tipo, queEs }) {
+  const archivo = $(campoArchivo).files[0];
+  const nombre = $(campoNombre).value.trim();
+  if (!archivo) { avisar(`Elige ${queEs}.`, true); return; }
+  if (!nombre) { avisar('Ponle nombre a la capa.', true); return; }
 
-$('subir-raster').onclick = () => {
-  const archivo = $('archivo-raster').files[0];
-  const nombre = $('nombre-capa-raster').value.trim();
-  if (!archivo) { avisar('Elige un GeoTIFF.', true); return; }
-  if (!nombre) { avisar('Ponle nombre al ráster.', true); return; }
+  const control = $(boton);
+  control.disabled = true;
+  try {
+    await subidas.subir(archivo, nombre, tipo);
+    $(campoArchivo).value = '';
+    $(campoNombre).value = '';
+  } catch { /* el panel de subidas ya muestra el fallo */ }
+  control.disabled = false;
+}
 
-  const boton = $('subir-raster');
-  const barra = $('progreso-raster');
-  boton.disabled = true;
-  barra.hidden = false;
-  barra.value = 0;
+$('subir-vector').onclick = () => cargarArchivo({
+  campoArchivo: 'archivo-vector', campoNombre: 'nombre-capa-vector',
+  boton: 'subir-vector', tipo: 'vector', queEs: 'un archivo GeoJSON',
+});
 
-  const cuerpo = new FormData();
-  cuerpo.append('archivo', archivo);
-  cuerpo.append('nombre', nombre);
-
-  // XMLHttpRequest y no fetch: es la unica forma de tener progreso real de
-  // subida, y una ortofoto de varios cientos de MB por una conexion de campo
-  // sin barra de progreso parece un cuelgue.
-  const peticion = new XMLHttpRequest();
-  peticion.open('POST', '/api/rasters');
-
-  peticion.upload.onprogress = (evento) => {
-    if (!evento.lengthComputable) return;
-    barra.value = Math.round((evento.loaded / evento.total) * 100);
-    boton.textContent = `Subiendo ${barra.value}%`;
-  };
-
-  peticion.onload = async () => {
-    boton.disabled = false;
-    boton.textContent = 'Cargar ráster';
-    barra.hidden = true;
-    if (peticion.status === 401) { location.href = '/login.html'; return; }
-    if (peticion.status >= 400) {
-      let detalle = `Error ${peticion.status}`;
-      try { detalle = JSON.parse(peticion.responseText).detail || detalle; } catch { /* sin json */ }
-      avisar(detalle, true);
-      return;
-    }
-    avisar('Ráster recibido. Se está convirtiendo a COG en segundo plano.');
-    $('archivo-raster').value = '';
-    $('nombre-capa-raster').value = '';
-    await capas.cargar();
-  };
-
-  peticion.onerror = () => {
-    boton.disabled = false;
-    boton.textContent = 'Cargar ráster';
-    barra.hidden = true;
-    avisar('Se cortó la conexión durante la subida.', true);
-  };
-
-  peticion.send(cuerpo);
-};
+$('subir-raster').onclick = () => cargarArchivo({
+  campoArchivo: 'archivo-raster', campoNombre: 'nombre-capa-raster',
+  boton: 'subir-raster', tipo: 'raster', queEs: 'un GeoTIFF',
+});
 
 // ---------------------------------------------------------------------------
 // Importar del servidor (escenas grandes dejadas por scp)

@@ -102,7 +102,40 @@ ALTER TABLE rasters ADD COLUMN IF NOT EXISTS autor    TEXT;
 ALTER TABLE rasters ADD COLUMN IF NOT EXISTS bandas      JSONB;
 ALTER TABLE rasters ADD COLUMN IF NOT EXISTS combinacion TEXT NOT NULL DEFAULT 'natural';
 
+-- Cola de conversion: el worker toma los 'pendiente', y 'procesando_desde'
+-- permite recuperar los que quedaron colgados por un reinicio.
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS origen           TEXT;
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS destino          TEXT;
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS procesando_desde TIMESTAMPTZ;
+
 UPDATE rasters SET orden = id WHERE orden IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_rasters_cola ON rasters (estado) WHERE estado = 'pendiente';
+
+-- ---------------------------------------------------------------------------
+-- Subidas por trozos.
+--
+-- Una escena Skysat pesa 1,8 GB. Enviarla en un solo POST significa que
+-- cualquier microcorte obliga a empezar de cero, y que un worker de la API
+-- queda ocupado todo ese rato, dejando la web sin responder. Aqui el archivo
+-- llega en trozos de unos megabytes: cada peticion dura segundos y, si se
+-- corta, se reanuda por el trozo que faltaba.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS subidas (
+  id               TEXT PRIMARY KEY,
+  tipo             TEXT NOT NULL DEFAULT 'raster',   -- raster | vector
+  nombre           TEXT NOT NULL,                    -- nombre de la capa a crear
+  archivo          TEXT NOT NULL,                    -- nombre original del archivo
+  tamano           BIGINT NOT NULL,
+  tam_trozo        INTEGER NOT NULL,
+  total_trozos     INTEGER NOT NULL,
+  trozos_recibidos INTEGER[] NOT NULL DEFAULT '{}',
+  autor            TEXT,
+  creado_en        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actualizado_en   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_subidas_actualizado ON subidas (actualizado_en);
 
 -- ---------------------------------------------------------------------------
 -- Vista oficial Colombia -- MAGNA-SIRGAS / Origen-Nacional (EPSG:9377),

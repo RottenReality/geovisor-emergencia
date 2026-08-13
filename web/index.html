@@ -66,6 +66,9 @@
         <label for="archivo-vector">Archivo GeoJSON (EPSG:4326)</label>
         <input type="file" id="archivo-vector" accept=".geojson,.json">
       </div>
+      <p class="nota" style="margin-bottom:10px">
+        Desde QGIS: clic derecho en la capa &rsaquo; Exportar &rsaquo; Guardar como &rsaquo; GeoJSON.
+      </p>
       <div class="campo">
         <label for="nombre-capa-vector">Nombre de la capa</label>
         <input type="text" id="nombre-capa-vector" placeholder="Ej: Manzanas afectadas">
@@ -84,8 +87,10 @@
         <input type="text" id="nombre-capa-raster" placeholder="Ej: Vuelo dron 12-ago">
       </div>
       <button id="subir-raster">Cargar ráster</button>
-      <progress id="progreso-raster" max="100" value="0" hidden></progress>
-      <p class="nota">Si no es COG se convierte solo. Puedes seguir trabajando mientras tanto.</p>
+      <p class="nota">
+        Se envía por partes: si se corta la red, reanuda donde iba. Puedes
+        seguir trabajando mientras se sube y mientras se convierte.
+      </p>
     </section>
 
     <section class="seccion">
@@ -144,6 +149,12 @@
   <div><span class="rotulo">WGS84</span><span class="valor" id="coord-geo">—</span></div>
   <div><span class="rotulo">9377</span><span class="valor" id="coord-9377">—</span></div>
 </div>
+
+<!-- Subidas en curso -->
+<aside id="panel-subidas" hidden>
+  <h2>Subiendo</h2>
+  <div id="lista-subidas"></div>
+</aside>
 
 <div id="aviso" role="status"></div>
 

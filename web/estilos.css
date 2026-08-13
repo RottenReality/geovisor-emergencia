@@ -540,6 +540,54 @@ table.atributos code {
 .par input { flex: 1; min-width: 0; }
 .par button { flex: 0 0 34px; padding: 8px 0; }
 
+/* --- Subidas en curso --------------------------------------------------- */
+#panel-subidas {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 30;
+  width: min(320px, calc(100vw - 24px));
+  padding: 12px 13px;
+  background: rgba(14, 19, 25, .96);
+  border: 1px solid var(--borde);
+  border-left: 3px solid var(--ok);
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+}
+#panel-subidas[hidden] { display: none; }
+#panel-subidas h2 {
+  margin: 0 0 9px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--papel-2);
+}
+.subida-fila { margin-bottom: 11px; }
+.subida-fila:last-child { margin-bottom: 0; }
+.subida-fila.fallida { border-left: 2px solid var(--alerta); padding-left: 8px; }
+.subida-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.subida-cabecera .nombre {
+  flex: 1; min-width: 0;
+  font-size: 12.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.subida-fila progress { height: 4px; margin: 0; display: block; }
+.subida-fila .avance {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--papel-2);
+}
+
 /* --- Avisos ------------------------------------------------------------- */
 #aviso {
   position: absolute;
