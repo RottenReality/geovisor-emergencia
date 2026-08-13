@@ -243,7 +243,10 @@ def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
 
     if combinacion == "gris" or len(bandas) == 1:
         elegidas = [bandas[0]["indice"]]
-    elif combinacion == "swir" and papeles["swir"] and papeles["nir"]:
+    elif (combinacion == "swir" and papeles["swir"] and papeles["nir"]
+          and papeles["visible"]):
+        # Solo tiene sentido como alternativa cuando SI hay bandas visibles.
+        # Sin ellas, la composicion por defecto ya es esta.
         elegidas = [papeles["swir"], papeles["nir"], papeles["rojo"]]
     elif combinacion == "infrarrojo" and papeles["nir"] and papeles["visible"]:
         # NIR en el canal rojo: asi la vegetacion sana se ve roja, que es la
@@ -336,7 +339,8 @@ async def listar():
         dato["num_bandas"] = len(bandas)
         # El visor solo necesita saber que combinaciones ofrecer.
         dato["admite_infrarrojo"] = bool(papeles.get("nir")) and papeles.get("visible", True)
-        dato["admite_swir"] = bool(papeles.get("swir")) and bool(papeles.get("nir"))
+        dato["admite_swir"] = (bool(papeles.get("swir")) and bool(papeles.get("nir"))
+                               and papeles.get("visible", True))
         dato["tiene_visible"] = papeles.get("visible", True)
         salida.append(dato)
     return salida
