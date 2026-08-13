@@ -16,6 +16,9 @@ COOKIE_NOMBRE = "geo_sesion"
 # Directorio de datos subidos (montado como volumen).
 DIR_DATOS = os.environ.get("DIR_DATOS", "/datos")
 DIR_RASTERS = os.path.join(DIR_DATOS, "rasters")
+# Buzon para escenas grandes: se copian por scp y se importan desde el visor,
+# porque subir 1,8 GB por el navegador es lento y se corta con facilidad.
+DIR_ENTRADA = os.path.join(DIR_DATOS, "entrada")
 
 # TiTiler vive solo en la red interna de Docker: el navegador nunca lo alcanza.
 # Su imagen sirve en el puerto 80, no en el 8000.

@@ -1,7 +1,7 @@
 /* Panel de capas: vectoriales y rasters en una sola lista ordenable. */
 
 import { api, avisar, escapar, $ } from './util.js';
-import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos } from './mapa.js';
+import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster } from './mapa.js';
 
 /** Lista mixta, del fondo al frente. */
 export let items = [];
@@ -75,7 +75,13 @@ function pintar() {
         <label>Opacidad <output>${Math.round((item.opacidad ?? 1) * 100)}%</output></label>
         <input type="range" min="0" max="100" value="${Math.round((item.opacidad ?? 1) * 100)}"
                data-accion="opacidad">
-        ${item.esRaster ? '' : `
+        ${item.esRaster ? (item.num_bandas > 1 ? `
+          <label>Combinación de bandas (${item.num_bandas} bandas)</label>
+          <select data-accion="combinacion">
+            <option value="natural"    ${item.combinacion === 'natural' ? 'selected' : ''}>Color natural</option>
+            ${item.admite_infrarrojo ? `<option value="infrarrojo" ${item.combinacion === 'infrarrojo' ? 'selected' : ''}>Falso color (infrarrojo)</option>` : ''}
+            <option value="gris"       ${item.combinacion === 'gris' ? 'selected' : ''}>Una banda en gris</option>
+          </select>` : '') : `
           <label>Color</label>
           <input type="color" value="${escapar(item.color)}" data-accion="color">`}
         <div class="fila">
@@ -100,6 +106,14 @@ function pintar() {
         control.onchange = (e) => actualizar(item, { opacidad: Number(e.target.value) / 100 }, false);
       } else if (accion === 'color') {
         control.onchange = (e) => actualizar(item, { color: e.target.value });
+      } else if (accion === 'combinacion') {
+        control.onchange = async (e) => {
+          await actualizar(item, { combinacion: e.target.value }, false);
+          // La URL de las teselas lleva la combinacion: hay que rehacer la fuente.
+          olvidarRaster(item.id);
+          await cargar();
+          avisar(`Vista cambiada a ${e.target.selectedOptions[0].textContent.toLowerCase()}.`);
+        };
       } else {
         control.onclick = () => manejar(accion, item, clave);
       }

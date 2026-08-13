@@ -185,6 +185,50 @@ $('subir-raster').onclick = () => {
 };
 
 // ---------------------------------------------------------------------------
+// Importar del servidor (escenas grandes dejadas por scp)
+// ---------------------------------------------------------------------------
+async function listarEntrada() {
+  const lista = $('lista-entrada');
+  try {
+    const archivos = await api('/api/rasters/disponibles');
+    if (!archivos.length) {
+      lista.innerHTML = '<p class="vacio">No hay archivos en la carpeta de entrada.</p>';
+      return;
+    }
+    lista.innerHTML = '';
+    for (const item of archivos) {
+      const fila = document.createElement('div');
+      fila.className = 'entrada-fila';
+      fila.innerHTML = `
+        <span class="nombre" title="${escapar(item.archivo)}">${escapar(item.archivo)}</span>
+        <span class="conteo">${item.mb} MB</span>
+        <button>Importar</button>`;
+      fila.querySelector('button').onclick = async (evento) => {
+        const nombre = prompt('Nombre para esta capa:', item.archivo.replace(/\.[^.]+$/, ''));
+        if (!nombre) return;
+        evento.target.disabled = true;
+        evento.target.textContent = 'Importando…';
+        try {
+          await api('/api/rasters/importar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ archivo: item.archivo, nombre }),
+          });
+          avisar('Importado. Se está preparando en segundo plano.');
+          await Promise.all([capas.cargar(), listarEntrada()]);
+        } catch (error) {
+          avisar(error.message, true);
+          evento.target.disabled = false;
+          evento.target.textContent = 'Importar';
+        }
+      };
+      lista.appendChild(fila);
+    }
+  } catch (error) { avisar(error.message, true); }
+}
+$('buscar-entrada').onclick = listarEntrada;
+
+// ---------------------------------------------------------------------------
 // Descargas
 // ---------------------------------------------------------------------------
 function descargar(srid) {

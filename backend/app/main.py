@@ -12,6 +12,7 @@ from .routers import capas, export, features, rasters, uploads
 @asynccontextmanager
 async def ciclo_vida(app: FastAPI):
     os.makedirs(config.DIR_RASTERS, exist_ok=True)
+    os.makedirs(config.DIR_ENTRADA, exist_ok=True)
     await db.iniciar()
     yield
     await db.cerrar()

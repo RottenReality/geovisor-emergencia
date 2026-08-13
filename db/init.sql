@@ -93,6 +93,15 @@ ALTER TABLE rasters ADD COLUMN IF NOT EXISTS orden    INTEGER;
 ALTER TABLE rasters ADD COLUMN IF NOT EXISTS visible  BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE rasters ADD COLUMN IF NOT EXISTS opacidad REAL NOT NULL DEFAULT 1;
 ALTER TABLE rasters ADD COLUMN IF NOT EXISTS autor    TEXT;
+
+-- Como pintar cada raster. La imagen satelital cruda (PlanetScope, Sentinel)
+-- trae 4 bandas de 16 bits de reflectancia, que un PNG no puede mostrar: hay
+-- que elegir tres bandas y estirar el contraste. 'bandas' guarda el indice,
+-- la interpretacion de color y los percentiles 2/98 de cada una, medidos al
+-- ingerir, para no recalcularlos en cada tesela.
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS bandas      JSONB;
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS combinacion TEXT NOT NULL DEFAULT 'natural';
+
 UPDATE rasters SET orden = id WHERE orden IS NULL;
 
 -- ---------------------------------------------------------------------------

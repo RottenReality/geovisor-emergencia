@@ -278,6 +278,31 @@ button.icono:hover:not(:disabled) {
   word-break: break-word;
 }
 
+.entrada-fila {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 0;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--borde);
+}
+.entrada-fila:last-child { border-bottom: 0; }
+.entrada-fila .nombre {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.entrada-fila button { flex: 0 0 auto; padding: 4px 9px; font-size: 12px; }
+#buscar-entrada { width: 100%; margin-top: 8px; }
+.nota code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--papel);
+  background: var(--tinta-3);
+  padding: 1px 4px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+
 .crear-capa {
   display: flex;
   gap: 6px;

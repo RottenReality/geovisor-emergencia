@@ -150,7 +150,10 @@ export function sincronizarCapas(items) {
       if (!mapa.getSource(clave)) {
         mapa.addSource(clave, {
           type: 'raster',
-          tiles: [`${location.origin}/api/rasters/${item.id}/tiles/{z}/{x}/{y}.png`],
+          // La combinacion de bandas va en la URL para que al cambiarla el
+          // navegador no siga mostrando las teselas cacheadas de la anterior.
+          tiles: [`${location.origin}/api/rasters/${item.id}/tiles/{z}/{x}/{y}.png` +
+                  `?c=${item.combinacion || 'natural'}`],
           tileSize: 256,
           bounds: item.bounds || undefined,
         });
@@ -232,6 +235,15 @@ export function capasConsultables() {
     .filter((c) => c.startsWith('capa-'))
     .flatMap((c) => ['-relleno', '-borde', '-punto'].map((s) => c + s))
     .filter((id) => mapa.getLayer(id));
+}
+
+/** Descarta un raster del mapa para que la proxima sincronizacion lo recree.
+ *  Necesario al cambiar la combinacion de bandas, porque la URL de las
+ *  teselas cambia y hay que rehacer la fuente. */
+export function olvidarRaster(id) {
+  const clave = `raster-${id}`;
+  if (mapa.getLayer(clave)) mapa.removeLayer(clave);
+  if (mapa.getSource(clave)) mapa.removeSource(clave);
 }
 
 export function resaltar(id) {

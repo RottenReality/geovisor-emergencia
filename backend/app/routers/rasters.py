@@ -1,8 +1,9 @@
-"""Rasters: ortofotos de dron y satelital.
+"""Rasters: ortofotos de dron e imagen satelital.
 
-Flujo: se recibe el archivo en streaming, se comprueba si ya cumple COG y, si
-no, se convierte con GDAL en segundo plano. La respuesta es inmediata para que
-quien sube no quede esperando frente a un archivo de 800 MB.
+Flujo: se recibe el archivo (por subida o desde la carpeta de entrada del
+servidor), se comprueba si ya cumple COG y, si no, se convierte con GDAL en
+segundo plano. Ademas se miden las bandas para saber como pintarlo: la imagen
+satelital cruda no es una imagen visible.
 
 TiTiler queda SOLO en la red interna. El navegador nunca le habla directamente
 ni le pasa rutas: pide /api/rasters/{id}/tiles/... y este modulo resuelve el
@@ -25,8 +26,9 @@ from ..auth import requiere_sesion
 
 router = APIRouter(prefix="/api/rasters", dependencies=[Depends(requiere_sesion)])
 
-TROZO = 4 * 1024 * 1024          # 4 MB por lectura al recibir el archivo
+TROZO = 8 * 1024 * 1024          # 8 MB por lectura al recibir el archivo
 EXTENSIONES = (".tif", ".tiff", ".cog")
+COMBINACIONES = ("natural", "infrarrojo", "gris")
 
 # TiTiler cambio la forma de sus rutas entre versiones. Se prueba la actual y
 # se recuerda cual respondio, en vez de fijar una y fallar en el peor momento.
@@ -36,7 +38,7 @@ _RUTAS_POSIBLES = (
     "/cog/tiles/{z}/{x}/{y}.png",
 )
 
-_cliente = httpx.AsyncClient(timeout=30.0)
+_cliente = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
 
 
 class RasterParche(BaseModel):
@@ -44,6 +46,12 @@ class RasterParche(BaseModel):
     visible: bool | None = None
     opacidad: float | None = Field(default=None, ge=0, le=1)
     orden: int | None = None
+    combinacion: str | None = None
+
+
+class Importacion(BaseModel):
+    archivo: str
+    nombre: str
 
 
 def _nombre_seguro(original: str) -> str:
@@ -98,6 +106,83 @@ def _bounds(info: dict) -> list[float] | None:
     ]
 
 
+async def _medir_bandas(info: dict, ruta: str) -> list[dict]:
+    """Indice, interpretacion de color y percentiles 2/98 de cada banda.
+
+    Los percentiles vienen de TiTiler, que muestrea sobre las vistas generales
+    del COG en vez de leer la imagen completa. Es el estiramiento de contraste
+    estandar para imagen satelital: sin el, una escena de reflectancia se ve
+    casi negra porque el rango util ocupa una fraccion del rango del dato.
+    """
+    bandas = [
+        {
+            "indice": b.get("band", i + 1),
+            "interp": (b.get("colorInterpretation") or "").lower(),
+            "tipo": b.get("type", ""),
+        }
+        for i, b in enumerate(info.get("bands", []))
+    ]
+
+    try:
+        respuesta = await _cliente.get(
+            f"{config.TITILER_URL}/cog/statistics", params={"url": ruta}, timeout=180.0)
+        respuesta.raise_for_status()
+        estadisticas = respuesta.json()
+        for banda in bandas:
+            stats = estadisticas.get(f"b{banda['indice']}") or {}
+            banda["p2"] = stats.get("percentile_2")
+            banda["p98"] = stats.get("percentile_98")
+    except Exception:
+        # Sin estadisticas se pinta sin estirar: peor, pero no rompe nada.
+        pass
+
+    return bandas
+
+
+def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
+    """Traduce bandas + combinacion a los parametros que entiende TiTiler."""
+    if not bandas:
+        return {}
+
+    por_interp = {b["interp"]: b["indice"] for b in bandas if b.get("interp")}
+    total = len(bandas)
+
+    if combinacion == "gris" or total == 1:
+        elegidas = [bandas[0]["indice"]]
+    elif combinacion == "infrarrojo" and total >= 4:
+        rojo = por_interp.get("red", 3)
+        verde = por_interp.get("green", 2)
+        usadas = {por_interp.get("red"), por_interp.get("green"), por_interp.get("blue")}
+        # El infrarrojo suele ser la banda sin interpretacion de color asignada.
+        nir = next((b["indice"] for b in bandas if b["indice"] not in usadas), 4)
+        elegidas = [nir, rojo, verde]
+    elif {"red", "green", "blue"} <= por_interp.keys():
+        elegidas = [por_interp["red"], por_interp["green"], por_interp["blue"]]
+    elif total >= 4:
+        # Convencion de PlanetScope y Sentinel-2 apilado: Azul, Verde, Rojo, NIR.
+        elegidas = [3, 2, 1]
+    else:
+        elegidas = [b["indice"] for b in bandas[:3]]
+
+    plan: dict = {"bidx": elegidas}
+
+    # Un raster de 8 bits ya es visible: estirarlo solo alteraria los colores.
+    if any(b.get("tipo", "").lower() not in ("byte", "") for b in bandas):
+        indexadas = {b["indice"]: b for b in bandas}
+        rangos = []
+        for indice in elegidas:
+            banda = indexadas.get(indice, {})
+            p2, p98 = banda.get("p2"), banda.get("p98")
+            if p2 is None or p98 is None or p98 <= p2:
+                rangos = []
+                break
+            rangos.append(f"{p2},{p98}")
+        if rangos:
+            plan["rescale"] = rangos
+
+    return plan
+
+
 async def _procesar(id_raster: int, origen: str, destino: str) -> None:
     """Corre en segundo plano: valida, convierte a COG si hace falta y publica."""
     try:
@@ -125,10 +210,13 @@ async def _procesar(id_raster: int, origen: str, destino: str) -> None:
                 raise RuntimeError(error.decode(errors="replace")[-300:] or "gdal_translate fallo")
             os.remove(origen)
 
-        bounds = _bounds(await _inspeccionar(destino))
+        info_final = await _inspeccionar(destino)
+        bandas = await _medir_bandas(info_final, destino)
+
         await db.pool().execute(
-            "UPDATE rasters SET estado='listo', archivo=$2, bounds=$3, mensaje=NULL WHERE id=$1",
-            id_raster, os.path.basename(destino), bounds,
+            "UPDATE rasters SET estado='listo', archivo=$2, bounds=$3, bandas=$4::jsonb, "
+            "mensaje=NULL WHERE id=$1",
+            id_raster, os.path.basename(destino), _bounds(info_final), json.dumps(bandas),
         )
     except Exception as excepcion:
         await db.pool().execute(
@@ -146,10 +234,71 @@ async def _procesar(id_raster: int, origen: str, destino: str) -> None:
 @router.get("")
 async def listar():
     filas = await db.pool().fetch(
-        "SELECT id, nombre, estado, mensaje, bounds, visible, opacidad, orden, autor, creado_en "
+        "SELECT id, nombre, estado, mensaje, bounds, visible, opacidad, orden, "
+        "       autor, creado_en, combinacion, bandas "
         "FROM rasters ORDER BY orden NULLS LAST, id"
     )
-    return [dict(f) for f in filas]
+    salida = []
+    for f in filas:
+        dato = dict(f)
+        bandas = json.loads(dato.pop("bandas") or "[]")
+        dato["num_bandas"] = len(bandas)
+        # El visor solo necesita saber si puede ofrecer el falso color.
+        dato["admite_infrarrojo"] = len(bandas) >= 4
+        salida.append(dato)
+    return salida
+
+
+@router.get("/disponibles")
+async def disponibles():
+    """Archivos dejados en la carpeta de entrada del servidor.
+
+    Para las escenas grandes (los Skysat rondan 1,8 GB) subir por el navegador
+    es fragil y lento. Se copian por scp a /datos/entrada y se importan de un
+    clic desde aqui.
+    """
+    os.makedirs(config.DIR_ENTRADA, exist_ok=True)
+    # Al importar, el archivo se mueve fuera de esta carpeta, asi que lo que
+    # queda listado es exactamente lo que falta por importar.
+    archivos = []
+    for nombre in sorted(os.listdir(config.DIR_ENTRADA)):
+        ruta = os.path.join(config.DIR_ENTRADA, nombre)
+        if not nombre.lower().endswith(EXTENSIONES) or not os.path.isfile(ruta):
+            continue
+        archivos.append({
+            "archivo": nombre,
+            "mb": round(os.path.getsize(ruta) / 1024 / 1024, 1),
+        })
+    return archivos
+
+
+@router.post("/importar", status_code=202)
+async def importar(datos: Importacion, tareas: BackgroundTasks,
+                   sesion: dict = Depends(requiere_sesion)):
+    # basename evita que un ".." saque la lectura de la carpeta de entrada.
+    nombre_archivo = os.path.basename(datos.archivo)
+    origen = os.path.join(config.DIR_ENTRADA, nombre_archivo)
+    if not nombre_archivo.lower().endswith(EXTENSIONES) or not os.path.isfile(origen):
+        raise HTTPException(status_code=404, detail="No existe ese archivo en la carpeta de entrada")
+
+    os.makedirs(config.DIR_RASTERS, exist_ok=True)
+    seguro = _nombre_seguro(nombre_archivo)
+    trabajo = os.path.join(config.DIR_RASTERS, f"entrada_{seguro}")
+    destino = os.path.join(config.DIR_RASTERS, f"{os.path.splitext(seguro)[0]}.tif")
+    # Mover, no copiar: son gigabytes y estan en el mismo volumen.
+    shutil.move(origen, trabajo)
+
+    fila = await db.pool().fetchrow(
+        """
+        INSERT INTO rasters (nombre, estado, autor, orden)
+        VALUES ($1, 'pendiente', $2, COALESCE((SELECT MAX(orden) + 1 FROM rasters), 1))
+        RETURNING id, nombre, estado, orden
+        """,
+        datos.nombre.strip() or nombre_archivo,
+        sesion.get("autor"),
+    )
+    tareas.add_task(_procesar, fila["id"], trabajo, destino)
+    return dict(fila)
 
 
 @router.post("", status_code=202)
@@ -169,7 +318,7 @@ async def subir(
     origen = os.path.join(config.DIR_RASTERS, f"entrada_{seguro}")
     destino = os.path.join(config.DIR_RASTERS, f"{os.path.splitext(seguro)[0]}.tif")
 
-    # Se escribe por trozos: un .read() completo de una ortofoto de 800 MB
+    # Se escribe por trozos: un .read() completo de una escena de 1,8 GB
     # reventaria el limite de memoria del contenedor.
     bytes_escritos = 0
     try:
@@ -202,21 +351,45 @@ async def subir(
 
 @router.patch("/{id_raster}")
 async def editar(id_raster: int, parche: RasterParche):
+    if parche.combinacion is not None and parche.combinacion not in COMBINACIONES:
+        raise HTTPException(status_code=400,
+                            detail=f"combinacion debe ser una de {COMBINACIONES}")
     fila = await db.pool().fetchrow(
         """
         UPDATE rasters SET
-          nombre   = COALESCE($2, nombre),
-          visible  = COALESCE($3, visible),
-          opacidad = COALESCE($4, opacidad),
-          orden    = COALESCE($5, orden)
+          nombre      = COALESCE($2, nombre),
+          visible     = COALESCE($3, visible),
+          opacidad    = COALESCE($4, opacidad),
+          orden       = COALESCE($5, orden),
+          combinacion = COALESCE($6, combinacion)
         WHERE id = $1
-        RETURNING id, nombre, visible, opacidad, orden
+        RETURNING id, nombre, visible, opacidad, orden, combinacion
         """,
-        id_raster, parche.nombre, parche.visible, parche.opacidad, parche.orden,
+        id_raster, parche.nombre, parche.visible, parche.opacidad,
+        parche.orden, parche.combinacion,
     )
     if fila is None:
         raise HTTPException(status_code=404, detail="Raster no encontrado")
     return dict(fila)
+
+
+@router.post("/{id_raster}/remedir")
+async def remedir(id_raster: int):
+    """Vuelve a medir las bandas de un raster ya publicado.
+
+    Sirve para los que se ingirieron antes de que existiera la medicion, y
+    para rehacer el estiramiento si la imagen se ve mal.
+    """
+    archivo = await db.pool().fetchval(
+        "SELECT archivo FROM rasters WHERE id=$1 AND estado='listo'", id_raster)
+    if not archivo:
+        raise HTTPException(status_code=404, detail="Raster no disponible")
+
+    ruta = os.path.join(config.DIR_RASTERS, os.path.basename(archivo))
+    bandas = await _medir_bandas(await _inspeccionar(ruta), ruta)
+    await db.pool().execute(
+        "UPDATE rasters SET bandas=$2::jsonb WHERE id=$1", id_raster, json.dumps(bandas))
+    return {"ok": True, "bandas": bandas}
 
 
 @router.delete("/{id_raster}")
@@ -236,27 +409,37 @@ async def borrar(id_raster: int):
 
 
 @router.get("/{id_raster}/tiles/{z}/{x}/{y}.png")
-async def tesela(id_raster: int, z: int, x: int, y: int):
+async def tesela(id_raster: int, z: int, x: int, y: int, c: str | None = None):
     global _ruta_titiler
 
-    archivo = await db.pool().fetchval(
-        "SELECT archivo FROM rasters WHERE id=$1 AND estado='listo'", id_raster)
-    if not archivo:
+    fila = await db.pool().fetchrow(
+        "SELECT archivo, bandas, combinacion FROM rasters WHERE id=$1 AND estado='listo'",
+        id_raster)
+    if fila is None or not fila["archivo"]:
         raise HTTPException(status_code=404, detail="Raster no disponible")
 
-    ruta_local = os.path.join(config.DIR_RASTERS, os.path.basename(archivo))
+    combinacion = c if c in COMBINACIONES else fila["combinacion"]
+    bandas = json.loads(fila["bandas"] or "[]")
+    ruta_local = os.path.join(config.DIR_RASTERS, os.path.basename(fila["archivo"]))
+
+    parametros: dict = {"url": ruta_local, **_plan_de_pintado(bandas, combinacion)}
     candidatas = [_ruta_titiler] if _ruta_titiler else list(_RUTAS_POSIBLES)
 
     for plantilla in candidatas:
         destino = config.TITILER_URL + plantilla.format(z=z, x=x, y=y)
         try:
-            respuesta = await _cliente.get(destino, params={"url": ruta_local})
+            respuesta = await _cliente.get(destino, params=parametros)
         except httpx.HTTPError as excepcion:
             raise HTTPException(status_code=502, detail=f"TiTiler no responde: {excepcion}") from excepcion
 
         if respuesta.status_code == 404 and _ruta_titiler is None:
             continue   # ruta equivocada para esta version de TiTiler; probar la otra
         _ruta_titiler = plantilla
+
+        if respuesta.status_code >= 500:
+            detalle = respuesta.text[:300]
+            raise HTTPException(status_code=502, detail=f"No se pudo pintar la tesela: {detalle}")
+
         return Response(
             content=respuesta.content,
             status_code=respuesta.status_code,

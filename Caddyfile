@@ -1,9 +1,11 @@
 {$DOMINIO} {
 	encode zstd gzip
 
-	# Permite subir ortofotos y shapefiles grandes (Fase 2).
+	# Escenas satelitales completas. Las Skysat rondan 1,8 GB; para esas
+	# conviene mas dejarlas por scp en /datos/entrada e importarlas desde
+	# el visor, pero el limite se deja holgado por si se sube una directa.
 	request_body {
-		max_size 500MB
+		max_size 2500MB
 	}
 
 	# API y chequeo de salud -> FastAPI
