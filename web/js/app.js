@@ -112,20 +112,27 @@ subidas.alTerminarSubida(async (resultado) => {
   await capas.cargar();
 });
 
-/** Las dos cargas usan el mismo camino: trozos reanudables. */
+/** Las dos cargas usan el mismo camino: trozos reanudables, varios a la vez. */
 async function cargarArchivo({ campoArchivo, campoNombre, boton, tipo, queEs }) {
-  const archivo = $(campoArchivo).files[0];
+  const archivos = [...$(campoArchivo).files];
   const nombre = $(campoNombre).value.trim();
-  if (!archivo) { avisar(`Elige ${queEs}.`, true); return; }
-  if (!nombre) { avisar('Ponle nombre a la capa.', true); return; }
+  if (!archivos.length) { avisar(`Elige ${queEs}.`, true); return; }
+  // Con varios archivos el nombre de cada capa sale del propio archivo, asi
+  // que el campo pasa a ser opcional.
+  if (!nombre && archivos.length === 1) { avisar('Ponle nombre a la capa.', true); return; }
 
   const control = $(boton);
   control.disabled = true;
-  try {
-    await subidas.subir(archivo, nombre, tipo);
-    $(campoArchivo).value = '';
-    $(campoNombre).value = '';
-  } catch { /* el panel de subidas ya muestra el fallo */ }
+
+  const resultado = await subidas.subirVarios(archivos, nombre, tipo);
+  if (archivos.length > 1) {
+    avisar(`${resultado.bien} de ${archivos.length} cargados` +
+           (resultado.mal ? ` · ${resultado.mal} con problemas` : '') + '.',
+           resultado.mal > 0);
+  }
+
+  $(campoArchivo).value = '';
+  $(campoNombre).value = '';
   control.disabled = false;
 }
 

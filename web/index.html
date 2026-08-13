@@ -63,14 +63,14 @@
     <section class="seccion">
       <h2>Cargar capa vectorial</h2>
       <div class="campo">
-        <label for="archivo-vector">Archivo GeoJSON (EPSG:4326)</label>
-        <input type="file" id="archivo-vector" accept=".geojson,.json">
+        <label for="archivo-vector">Archivos GeoJSON (EPSG:4326) &mdash; puedes elegir varios</label>
+        <input type="file" id="archivo-vector" accept=".geojson,.json" multiple>
       </div>
       <p class="nota" style="margin-bottom:10px">
         Desde QGIS: clic derecho en la capa &rsaquo; Exportar &rsaquo; Guardar como &rsaquo; GeoJSON.
       </p>
       <div class="campo">
-        <label for="nombre-capa-vector">Nombre de la capa</label>
+        <label for="nombre-capa-vector">Nombre de la capa <span class="pista">opcional si eliges varios</span></label>
         <input type="text" id="nombre-capa-vector" placeholder="Ej: Manzanas afectadas">
       </div>
       <button id="subir-vector">Cargar GeoJSON</button>
@@ -79,17 +79,17 @@
     <section class="seccion">
       <h2>Cargar ráster</h2>
       <div class="campo">
-        <label for="archivo-raster">GeoTIFF u ortofoto (.tif)</label>
-        <input type="file" id="archivo-raster" accept=".tif,.tiff,.cog">
+        <label for="archivo-raster">GeoTIFF u ortofoto (.tif) &mdash; puedes elegir varios</label>
+        <input type="file" id="archivo-raster" accept=".tif,.tiff,.cog" multiple>
       </div>
       <div class="campo">
-        <label for="nombre-capa-raster">Nombre del ráster</label>
+        <label for="nombre-capa-raster">Nombre del ráster <span class="pista">opcional si eliges varios</span></label>
         <input type="text" id="nombre-capa-raster" placeholder="Ej: Vuelo dron 12-ago">
       </div>
       <button id="subir-raster">Cargar ráster</button>
       <p class="nota">
-        Se envía por partes: si se corta la red, reanuda donde iba. Puedes
-        seguir trabajando mientras se sube y mientras se convierte.
+        Se envía por partes y en paralelo: si se corta la red, reanuda donde
+        iba. Puedes seguir trabajando mientras se sube y se convierte.
       </p>
     </section>
 

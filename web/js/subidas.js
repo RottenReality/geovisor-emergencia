@@ -13,6 +13,16 @@ const TROZO = 8 * 1024 * 1024;      // 8 MB: peticiones cortas incluso en 4G flo
 const REINTENTOS = 5;
 const MEMORIA = 'geovisor.subidas';
 
+// Trozos en vuelo a la vez dentro de un mismo archivo. Con el servidor al
+// otro lado del continente, una sola conexion pasa buena parte del tiempo
+// esperando el viaje de ida y vuelta; tres aprovechan mejor el enlace. Mas
+// no compensa: se compite consigo mismo por el ancho de banda de subida.
+const PARALELO_TROZOS = 3;
+
+// Archivos subiendose a la vez. Dos permite dejar una tanda andando sin que
+// ninguno se quede parado, y no satura el disco del servidor.
+const PARALELO_ARCHIVOS = 2;
+
 /** Subidas en curso en esta pestana, por id. */
 const enCurso = new Map();
 let alTerminar = () => {};
@@ -97,15 +107,37 @@ class Subida {
   }
 
   async enviarTodo() {
+    const pendientes = [];
     for (let indice = 0; indice < this.total; indice++) {
-      if (this.cancelada) return;
-      while (this.pausada && !this.cancelada) await espera(400);
-      if (this.recibidos.has(indice)) continue;
-
-      await this.enviarTrozo(indice);
-      this.recibidos.add(indice);
-      this.mostrar();
+      if (!this.recibidos.has(indice)) pendientes.push(indice);
     }
+
+    let siguiente = 0;
+    let fallo = null;
+
+    // Varios trozos en vuelo. JavaScript es de un solo hilo, asi que tomar el
+    // siguiente indice con siguiente++ no necesita ningun cerrojo.
+    const obrero = async () => {
+      while (siguiente < pendientes.length && !this.cancelada && !fallo) {
+        while (this.pausada && !this.cancelada) await espera(400);
+        if (this.cancelada || fallo) return;
+
+        const indice = pendientes[siguiente++];
+        try {
+          await this.enviarTrozo(indice);
+          this.recibidos.add(indice);
+          this.mostrar();
+        } catch (error) {
+          fallo = error;          // detiene tambien a los demas obreros
+          return;
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(PARALELO_TROZOS, pendientes.length || 1) }, obrero));
+
+    if (fallo) throw fallo;
   }
 
   async enviarTrozo(indice) {
@@ -235,6 +267,45 @@ export async function subir(archivo, nombre, tipo) {
     enCurso.delete(subida.id);
     throw error;
   }
+}
+
+/**
+ * Sube varios archivos, manteniendo unos pocos en vuelo a la vez.
+ * Si falla uno, los demas siguen: en emergencia importa mas que entre lo que
+ * pueda entrar que abortar la tanda entera.
+ *
+ * @param {File[]} archivos
+ * @param {string} nombreBase  nombre de capa; con varios archivos se usa el
+ *                             nombre de cada archivo y esto queda de prefijo
+ * @param {'raster'|'vector'} tipo
+ */
+export async function subirVarios(archivos, nombreBase, tipo) {
+  const lista = [...archivos];
+  const varios = lista.length > 1;
+  let siguiente = 0;
+  const resultados = { bien: 0, mal: 0 };
+
+  const nombreDe = (archivo) => {
+    const sinExtension = archivo.name.replace(/\.[^.]+$/, '');
+    if (!varios) return nombreBase || sinExtension;
+    return nombreBase ? `${nombreBase} · ${sinExtension}` : sinExtension;
+  };
+
+  const obrero = async () => {
+    while (siguiente < lista.length) {
+      const archivo = lista[siguiente++];
+      try {
+        await subir(archivo, nombreDe(archivo), tipo);
+        resultados.bien++;
+      } catch {
+        resultados.mal++;
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(PARALELO_ARCHIVOS, lista.length) }, obrero));
+  return resultados;
 }
 
 export const haySubidasActivas = () => enCurso.size > 0;

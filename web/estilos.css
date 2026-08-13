@@ -203,6 +203,7 @@ label {
   margin: 0 0 4px;
 }
 label output { float: right; font-family: var(--mono); color: var(--papel); }
+label .pista { opacity: .65; font-style: italic; }
 .campo { margin-bottom: 10px; }
 
 /* --- Lista de capas ----------------------------------------------------- */
