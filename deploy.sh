@@ -22,9 +22,13 @@ if docker ps --format '{{.Names}}' | grep -qx geo_db; then
   echo "    guardado en respaldos/"
 fi
 
-if [[ "${SKIP_PULL:-0}" != "1" ]] && git rev-parse --git-dir >/dev/null 2>&1; then
+if [[ "${SKIP_PULL:-0}" != "1" && "${REEJECUTADO:-0}" != "1" ]] && git rev-parse --git-dir >/dev/null 2>&1; then
   log "Actualizando codigo"
   git pull --ff-only
+  # bash lee el script por trozos mientras lo ejecuta: si el pull acaba de
+  # reemplazar este archivo, lo que queda por ejecutar es una mezcla de la
+  # version vieja y la nueva. Volver a arrancar con el archivo ya actualizado.
+  REEJECUTADO=1 exec "$0" "$@"
 fi
 
 log "Levantando servicios"

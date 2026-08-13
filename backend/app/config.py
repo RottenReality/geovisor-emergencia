@@ -18,7 +18,8 @@ DIR_DATOS = os.environ.get("DIR_DATOS", "/datos")
 DIR_RASTERS = os.path.join(DIR_DATOS, "rasters")
 
 # TiTiler vive solo en la red interna de Docker: el navegador nunca lo alcanza.
-TITILER_URL = os.environ.get("TITILER_URL", "http://titiler:8000")
+# Su imagen sirve en el puerto 80, no en el 8000.
+TITILER_URL = os.environ.get("TITILER_URL", "http://titiler")
 
 # EPSG oficial de Colombia: MAGNA-SIRGAS / Origen-Nacional
 # (Resolucion 471 de 2020, IGAC).
