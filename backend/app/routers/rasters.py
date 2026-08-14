@@ -150,6 +150,7 @@ async def _medir_bandas(info: dict, ruta: str) -> list[dict]:
             # Sentinel-2 apilado no declara color pero si nombra las bandas
             # (B2, B3, B4, B8), y eso basta para identificarlas.
             "nombre": (b.get("description") or "").strip(),
+            "nodata": b.get("noDataValue"),
         }
         for i, b in enumerate(info.get("bands", []))
     ]
@@ -256,20 +257,46 @@ def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
         elegidas = [papeles["rojo"], papeles["verde"], papeles["azul"]]
 
     plan: dict = {"bidx": elegidas}
+    indexadas = {b["indice"]: b for b in bandas}
 
     # Un raster de 8 bits ya es visible: estirarlo solo alteraria los colores.
     if any(b.get("tipo", "").lower() not in ("byte", "") for b in bandas):
-        indexadas = {b["indice"]: b for b in bandas}
-        rangos = []
+        limites = []
         for indice in elegidas:
             banda = indexadas.get(indice, {})
             p2, p98 = banda.get("p2"), banda.get("p98")
             if p2 is None or p98 is None or p98 <= p2:
-                rangos = []
+                limites = []
                 break
-            rangos.append(f"{p2},{p98}")
-        if rangos:
-            plan["rescale"] = rangos
+            limites.append((p2, p98))
+
+        if limites:
+            if combinacion == "natural" and len(limites) == 3:
+                # Color real: el MISMO rango para las tres bandas.
+                #
+                # Estirar cada banda a su propio rango es realce de contraste,
+                # no color verdadero: rompe la relacion radiometrica entre
+                # bandas y mete un tinte. En Sentinel-2, por ejemplo, el verde
+                # va de 0.041 a 0.302 y el azul de 0.024 a 0.283; normalizarlos
+                # por separado desplaza el balance y la escena "parece" falso
+                # color. Con un rango comun los colores salen como son.
+                bajo = min(p2 for p2, _ in limites)
+                alto = max(p98 for _, p98 in limites)
+                plan["rescale"] = [f"{bajo},{alto}"] * len(limites)
+            else:
+                # En falso color la imagen ya es una construccion: ahi el
+                # estiramiento por banda es lo habitual y da mas contraste.
+                plan["rescale"] = [f"{p2},{p98}" for p2, p98 in limites]
+
+    # Transparencia de los bordes. Sin esto la escena se dibuja sobre un
+    # rectangulo negro que tapa lo que haya debajo.
+    declarado = next((b.get("nodata") for b in bandas if b.get("nodata") is not None), None)
+    if declarado is not None:
+        plan["nodata"] = declarado
+    elif all(b.get("tipo", "").lower() != "byte" for b in bandas):
+        # Los productos satelitales rellenan con 0 aunque no lo declaren. En
+        # una ortofoto de 8 bits, en cambio, el 0 es negro legitimo.
+        plan["nodata"] = 0
 
     return plan
 

@@ -8,7 +8,7 @@
 
 import { api, avisar, longitudDe, areaDe, formatearArea, formatearLongitud, escapar, $ } from './util.js';
 import { mapa, coleccionVacia, refrescarDatos } from './mapa.js';
-import { capasVectoriales } from './capas.js';
+import { capasVectoriales, asegurarVisible } from './capas.js';
 
 let modo = null;          // null | 'punto' | 'linea' | 'poligono'
 let vertices = [];
@@ -102,11 +102,20 @@ export function activar(nuevo) {
   if (modo) mapa.doubleClickZoom.disable(); else mapa.doubleClickZoom.enable();
 
   pintar();
-  if (modo) {
-    avisar(modo === 'punto'
-      ? 'Toca el mapa para ubicar el punto.'
-      : 'Toca para agregar vértices. Doble toque o «Finalizar» para cerrar.');
-  }
+  if (!modo) return;
+
+  const destino = capaDestino();
+  if (!destino) { avisar('Elige o crea una capa donde guardar.', true); return; }
+
+  // Si la capa destino esta apagada, se enciende: dibujar en una capa
+  // invisible guarda el elemento pero no lo muestra, y eso se lee como que
+  // el visor no funciona.
+  asegurarVisible(destino.id).then((encendida) => {
+    if (encendida) avisar(`Se encendió «${encendida}» para que veas lo que dibujas.`);
+    else avisar(modo === 'punto'
+      ? `Toca el mapa para ubicar el punto en «${destino.nombre}».`
+      : `Toca para agregar vértices en «${destino.nombre}». Doble toque para cerrar.`);
+  });
 }
 
 function alHacerClic(evento) {

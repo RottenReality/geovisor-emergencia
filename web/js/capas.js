@@ -61,6 +61,35 @@ export async function cargar() {
  *  Lo usa la comparacion al cerrarse, tras haber ocultado el resto. */
 export const reaplicarEstilos = () => aplicarEstilos(items.map(efectivo));
 
+/**
+ * Se asegura de que una capa vectorial este encendida, y la enciende si no.
+ *
+ * Dibujar sobre una capa apagada guarda el elemento pero no lo muestra, y eso
+ * se lee como "no funciona". Encenderla al empezar a dibujar elimina el
+ * malentendido de raiz.
+ *
+ * @returns {Promise<string|null>} nombre de la capa si hubo que encenderla
+ */
+export async function asegurarVisible(capaId) {
+  const capa = items.find((i) => !i.esRaster && i.id === capaId);
+  if (!capa) return null;
+
+  const grupoApagado = gruposOcultos.has('vector');
+  if (grupoApagado) gruposOcultos.delete('vector');
+
+  if (!capa.visible) {
+    await actualizar(capa, { visible: true });
+    pintar();
+    return capa.nombre;
+  }
+  if (grupoApagado) {
+    aplicarEstilos(items.map(efectivo));
+    pintar();
+    return capa.nombre;
+  }
+  return null;
+}
+
 /** Mientras haya un raster convirtiendose, refrescar hasta que termine. */
 function vigilarConversiones() {
   const enProceso = items.some((i) => i.esRaster && ['pendiente', 'procesando'].includes(i.estado));
@@ -89,6 +118,7 @@ function pintar() {
     const delGrupo = items.filter((i) => grupoDe(i) === grupo.clave);
     const plegado = plegados.has(grupo.clave);
     const apagado = gruposOcultos.has(grupo.clave);
+    const encendidas = apagado ? 0 : delGrupo.filter((i) => i.visible).length;
 
     const cabecera = document.createElement('div');
     cabecera.className = 'grupo-cabecera' + (plegado ? ' plegado' : '');
@@ -98,7 +128,7 @@ function pintar() {
       <input type="checkbox" ${apagado ? '' : 'checked'}
              aria-label="Mostrar todo el grupo ${grupo.titulo}">
       <span class="titulo">${grupo.titulo}</span>
-      <span class="conteo">${delGrupo.length}</span>`;
+      <span class="conteo ${encendidas ? 'vivo' : ''}">${encendidas}/${delGrupo.length}</span>`;
 
     cabecera.querySelector('.chevron').onclick = () => {
       if (plegado) plegados.delete(grupo.clave); else plegados.add(grupo.clave);
@@ -136,20 +166,31 @@ function pintarFila(item, indice, total, grupoApagado) {
   fila.className = 'capa-fila' + (expandida === clave ? ' abierta' : '')
                                + (grupoApagado ? ' atenuada' : '');
 
+  const abierta = expandida === clave;
+  fila.classList.toggle('encendida', !!item.visible);
+
   fila.innerHTML = `
       <div class="capa-cabecera">
-        <input type="checkbox" ${item.visible ? 'checked' : ''}
-               aria-label="Mostrar ${escapar(item.nombre)}">
+        <button class="ojo ${item.visible ? 'activo' : ''}" data-accion="ver"
+                title="${item.visible ? 'Ocultar' : 'Mostrar'} esta capa"
+                aria-pressed="${!!item.visible}"
+                aria-label="${item.visible ? 'Ocultar' : 'Mostrar'} ${escapar(item.nombre)}">
+          ${item.visible ? '&#9673;' : '&#9678;'}
+        </button>
         <span class="punto-color" style="background:${item.esRaster ? 'transparent' : escapar(item.color)};
               ${item.esRaster ? 'border:1px solid var(--papel-2)' : ''}"></span>
-        <span class="nombre" title="${escapar(item.nombre)}">${escapar(item.nombre)}</span>
+        <button class="nombre" data-accion="expandir" title="${escapar(item.nombre)} — opciones">
+          ${escapar(item.nombre)}
+        </button>
         ${estado ? `<span class="estado ${estado[1]}">${estado[0]}</span>`
                  : `<span class="conteo">${item.esRaster ? 'ráster' : item.total}</span>`}
         <button class="icono" data-accion="subir"    ${indice === 0 ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
         <button class="icono" data-accion="bajar"    ${indice === total - 1 ? 'disabled' : ''}
                 title="Enviar atrás" aria-label="Enviar atrás">&darr;</button>
-        <button class="icono" data-accion="expandir" title="Opciones" aria-label="Opciones">&#8942;</button>
+        <button class="icono chevron ${abierta ? 'abierto' : ''}" data-accion="expandir"
+                title="${abierta ? 'Cerrar opciones' : 'Abrir opciones'}"
+                aria-expanded="${abierta}" aria-label="Opciones">&#9662;</button>
       </div>
       <div class="capa-detalle">
         ${item.estado === 'error' ? `<p class="error-texto">${escapar(item.mensaje || 'Falló la conversión')}</p>` : ''}
@@ -174,10 +215,8 @@ function pintarFila(item, indice, total, grupoApagado) {
           <button data-accion="renombrar">Renombrar</button>
         </div>
         <button data-accion="borrar" class="peligro">Eliminar capa</button>
+        <button data-accion="expandir" class="tenue cerrar-detalle">Cerrar opciones</button>
       </div>`;
-
-  fila.querySelector('input[type=checkbox]').onchange = (e) =>
-    actualizar(item, { visible: e.target.checked });
 
   fila.querySelectorAll('[data-accion]').forEach((control) => {
     const accion = control.dataset.accion;
@@ -209,6 +248,11 @@ function pintarFila(item, indice, total, grupoApagado) {
 
 async function manejar(accion, item, clave) {
   switch (accion) {
+    case 'ver':
+      await actualizar(item, { visible: !item.visible });
+      pintar();
+      break;
+
     case 'expandir':
       expandida = expandida === clave ? null : clave;
       pintar();

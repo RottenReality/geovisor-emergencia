@@ -234,6 +234,7 @@ label .pista { opacity: .65; font-style: italic; }
   transition: transform .15s ease;
 }
 .grupo-cabecera.plegado .chevron { transform: rotate(-90deg); }
+.grupo-cabecera .conteo.vivo { color: var(--ok); }
 .grupo-cuerpo { padding: 4px 0 2px; }
 .grupo-cuerpo .vacio { padding: 2px 4px; font-size: 12px; }
 
@@ -257,24 +258,38 @@ label .pista { opacity: .65; font-style: italic; }
 #contador-sesion[hidden] { display: none; }
 .capa-fila {
   border: 1px solid transparent;
+  /* Franja de estado: se rellena cuando la capa esta encendida. Es lo que
+     permite ver de un vistazo, sin leer, que hay dibujandose en el mapa. */
+  border-left: 3px solid transparent;
   border-radius: 5px;
   margin-bottom: 2px;
 }
+.capa-fila.encendida { border-left-color: var(--ok); }
 .capa-fila.abierta {
   background: var(--tinta-2);
   border-color: var(--borde);
+  border-left-color: var(--borde);
 }
+.capa-fila.abierta.encendida { border-left-color: var(--ok); }
 .capa-cabecera {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 6px;
+  gap: 6px;
+  padding: 6px 6px 6px 4px;
   font-size: 13px;
 }
-.capa-cabecera input[type="checkbox"] {
-  width: auto; margin: 0; flex-shrink: 0;
-  accent-color: var(--ok);
+button.ojo {
+  flex: 0 0 auto;
+  width: 22px;
+  padding: 2px 0;
+  font-size: 12px;
+  line-height: 1;
+  background: transparent;
+  border-color: transparent;
+  color: #55636f;
 }
+button.ojo.activo { color: var(--ok); }
+button.ojo:hover { background: var(--tinta-3); border-color: var(--borde); }
 .punto-color {
   width: 10px; height: 10px;
   border-radius: 2px;
@@ -286,7 +301,17 @@ label .pista { opacity: .65; font-style: italic; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
+  padding: 2px 2px;
+  font: inherit;
+  color: #7d8b99;
+  background: transparent;
+  border-color: transparent;
 }
+.capa-fila.encendida .capa-cabecera .nombre { color: var(--papel); }
+.capa-cabecera .nombre:hover { background: var(--tinta-3); border-color: var(--borde); }
+button.chevron.abierto { transform: rotate(180deg); }
+.cerrar-detalle { width: 100%; margin-top: 6px; }
 .conteo, .estado {
   font-family: var(--mono);
   font-size: 10.5px;
