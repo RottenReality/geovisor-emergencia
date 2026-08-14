@@ -51,8 +51,21 @@ if docker ps --format '{{.Names}}' | grep -qx geo_caddy; then
   aqui=$(sha256sum Caddyfile | cut -d' ' -f1)
   alla=$(docker exec geo_caddy sha256sum /etc/caddy/Caddyfile 2>/dev/null | cut -d' ' -f1)
   if [[ "$aqui" != "$alla" ]]; then
-    log "El Caddyfile cambio: recreando el contenedor"
-    docker compose up -d --force-recreate caddy
+    log "El Caddyfile cambio: validando antes de aplicarlo"
+    # Validar primero. Un error de sintaxis deja a Caddy reiniciandose en
+    # bucle y el visor entero inaccesible; comprobarlo cuesta dos segundos.
+    if docker run --rm -e DOMINIO="${DOMINIO}" \
+         -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine \
+         caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+      echo "    configuracion valida, recreando"
+      docker compose up -d --force-recreate caddy
+    else
+      echo "    ERROR: el Caddyfile no es valido. Se deja el anterior en marcha." >&2
+      docker run --rm -e DOMINIO="${DOMINIO}" \
+        -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine \
+        caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -3 >&2
+      exit 1
+    fi
   fi
 fi
 

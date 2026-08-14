@@ -8,12 +8,6 @@
 		max_size 64MB
 	}
 
-	# Una subida por trozos de 1,8 GB puede durar bastante; que Caddy no corte
-	# la conversacion a mitad.
-	timeouts {
-		read_body 10m
-	}
-
 	# API y chequeo de salud -> FastAPI
 	handle /api/* {
 		reverse_proxy api:8080
