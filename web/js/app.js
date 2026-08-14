@@ -9,6 +9,7 @@ import * as capas from './capas.js';
 import * as dibujo from './dibujo.js';
 import * as ficha from './ficha.js';
 import * as subidas from './subidas.js';
+import * as comparar from './comparar.js';
 import { PRIORITARIAS, RESTO, COLOMBIA } from './ciudades.js';
 
 // ---------------------------------------------------------------------------
@@ -19,6 +20,7 @@ mapa.on('load', async () => {
   cambiarBase(baseGuardada());
   seguirCursor();
   dibujo.inicializar();
+  comparar.inicializar();
 
   dibujo.alGuardarElemento(() => capas.cargar());
   ficha.alBorrarElemento(() => capas.cargar());
@@ -222,8 +224,11 @@ $('salir').onclick = async () => {
 
 document.addEventListener('keydown', (evento) => {
   if (evento.key !== 'Escape') return;
-  if (dibujo.hayModal()) dibujo.cerrarModal();
+  if ($('telon-comparar').classList.contains('visible')) {
+    $('telon-comparar').classList.remove('visible');
+  } else if (dibujo.hayModal()) dibujo.cerrarModal();
   else if (dibujo.dibujando()) dibujo.activar(null);
+  else if (comparar.estaActiva()) comparar.desactivar();
   else ficha.cerrar();
 });
 

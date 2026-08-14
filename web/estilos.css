@@ -206,7 +206,55 @@ label output { float: right; font-family: var(--mono); color: var(--papel); }
 label .pista { opacity: .65; font-style: italic; }
 .campo { margin-bottom: 10px; }
 
+/* --- Grupos de capas ---------------------------------------------------- */
+.grupo-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 4px;
+  margin-top: 6px;
+  border-bottom: 1px solid var(--borde);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--papel-2);
+}
+.grupo-cabecera:first-child { margin-top: 0; }
+.grupo-cabecera .titulo { flex: 1; }
+.grupo-cabecera input[type="checkbox"] { width: auto; margin: 0; accent-color: var(--ok); }
+.grupo-cabecera .chevron {
+  width: 18px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  background: transparent;
+  border-color: transparent;
+  color: var(--papel-2);
+  transition: transform .15s ease;
+}
+.grupo-cabecera.plegado .chevron { transform: rotate(-90deg); }
+.grupo-cuerpo { padding: 4px 0 2px; }
+.grupo-cuerpo .vacio { padding: 2px 4px; font-size: 12px; }
+
 /* --- Lista de capas ----------------------------------------------------- */
+.capa-fila.atenuada { opacity: .45; }
+
+/* --- Opciones de digitalizacion ----------------------------------------- */
+.opciones { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+.casilla {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--papel-2);
+  cursor: pointer;
+}
+.casilla input { width: auto; margin: 0; accent-color: var(--ok); }
+.casilla:hover { color: var(--papel); }
+#contador-sesion { margin-top: 8px; }
+#contador-sesion[hidden] { display: none; }
 .capa-fila {
   border: 1px solid transparent;
   border-radius: 5px;
@@ -540,6 +588,85 @@ table.atributos code {
 .par { display: flex; gap: 6px; margin-bottom: 6px; }
 .par input { flex: 1; min-width: 0; }
 .par button { flex: 0 0 34px; padding: 8px 0; }
+
+/* --- Comparacion de capas ----------------------------------------------- */
+/* El segundo mapa se recorta por CSS y no recibe eventos: el de abajo sigue
+   siendo el que se arrastra y se acerca, y los dos van sincronizados. */
+#mapa-b {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+#mapa-b[hidden] { display: none; }
+
+#divisor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1px;
+  background: var(--foco);
+  z-index: 8;
+  cursor: col-resize;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+#divisor[hidden] { display: none; }
+#divisor .asa {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 26px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  color: #1a1200;
+  background: var(--foco);
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .4);
+}
+
+#barra-comparar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(92vw, 620px);
+  padding: 8px 12px;
+  background: rgba(14, 19, 25, .95);
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+}
+#barra-comparar[hidden] { display: none; }
+#barra-comparar .lado {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--papel-2);
+}
+#barra-comparar .lado b { color: var(--papel); font-weight: 600; }
+#barra-comparar .lado.derecha { text-align: right; }
+#barra-comparar .mezcla { display: none; align-items: center; gap: 8px; flex: 0 0 170px; }
+#barra-comparar.fundido .mezcla { display: flex; }
+#barra-comparar .mezcla input { margin: 0; }
+#barra-comparar .mezcla output {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+}
+#barra-comparar button { flex: 0 0 auto; padding: 5px 10px; font-size: 12px; }
+#comparar { width: 100%; }
 
 /* --- Subidas en curso --------------------------------------------------- */
 #panel-subidas {

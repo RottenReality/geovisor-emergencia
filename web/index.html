@@ -11,6 +11,23 @@
 
 <div id="mapa"></div>
 
+<!-- Mapa superpuesto para la cortinilla: sin mapa base, solo la capa comparada -->
+<div id="mapa-b" hidden></div>
+<div id="divisor" role="separator" aria-label="Divisor de comparación" hidden>
+  <span class="asa">&#8942;</span>
+</div>
+
+<div id="barra-comparar" hidden>
+  <span class="lado"><b id="cmp-nombre-izq"></b></span>
+  <span class="mezcla">
+    <input type="range" id="cmp-mezcla" min="0" max="100" value="50"
+           aria-label="Mezcla entre las dos capas">
+    <output id="cmp-mezcla-valor">50%</output>
+  </span>
+  <span class="lado derecha"><b id="cmp-nombre-der"></b></span>
+  <button id="cmp-salir">Salir</button>
+</div>
+
 <!-- ------------------------------------------------------------------ -->
 <!-- Rail lateral                                                        -->
 <!-- ------------------------------------------------------------------ -->
@@ -29,6 +46,10 @@
 
     <section class="seccion">
       <h2>Registrar en el mapa</h2>
+      <div class="campo">
+        <label for="capa-destino">Guardar en</label>
+        <select id="capa-destino"></select>
+      </div>
       <div class="fila">
         <button id="dibujar-punto"    aria-pressed="false">Punto</button>
         <button id="dibujar-linea"    aria-pressed="false">Línea</button>
@@ -38,10 +59,22 @@
         <button id="finalizar" disabled>Finalizar</button>
         <button id="cancelar"  disabled>Cancelar</button>
       </div>
+      <div class="opciones">
+        <label class="casilla">
+          <input type="checkbox" id="mantener-atributos" checked>
+          Mantener atributos del anterior
+        </label>
+        <label class="casilla">
+          <input type="checkbox" id="sin-preguntar">
+          Guardar sin preguntar
+        </label>
+      </div>
+      <p class="nota" id="contador-sesion" hidden></p>
     </section>
 
     <section class="seccion">
       <h2>Capas <span class="pista">arriba = al frente</span></h2>
+      <button id="comparar" class="tenue" style="margin-bottom:8px">Comparar capas</button>
       <div id="lista-capas"></div>
       <div class="crear-capa">
         <input type="text" id="nueva-capa-nombre" placeholder="Nombre de la capa nueva">
@@ -66,9 +99,6 @@
         <label for="archivo-vector">Archivos GeoJSON (EPSG:4326) &mdash; puedes elegir varios</label>
         <input type="file" id="archivo-vector" accept=".geojson,.json" multiple>
       </div>
-      <p class="nota" style="margin-bottom:10px">
-        Desde QGIS: clic derecho en la capa &rsaquo; Exportar &rsaquo; Guardar como &rsaquo; GeoJSON.
-      </p>
       <div class="campo">
         <label for="nombre-capa-vector">Nombre de la capa <span class="pista">opcional si eliges varios</span></label>
         <input type="text" id="nombre-capa-vector" placeholder="Ej: Manzanas afectadas">
@@ -160,17 +190,24 @@
 
 <div id="aviso" role="status"></div>
 
+<!-- Modal de comparación -->
+<div class="telon" id="telon-comparar">
+  <div class="modal">
+    <h2>Comparar capas</h2>
+    <div id="comparar-cuerpo"></div>
+  </div>
+</div>
+
 <!-- Modal de atributos al terminar de dibujar -->
 <div class="telon" id="telon-atributos">
   <div class="modal">
     <h2>Datos del elemento</h2>
+    <p class="nota" style="margin:-8px 0 12px">
+      Se guardará en <strong id="attr-destino">…</strong>
+    </p>
     <div class="campo">
       <label for="attr-nombre">Nombre</label>
       <input type="text" id="attr-nombre" placeholder="Ej: Vivienda con colapso parcial">
-    </div>
-    <div class="campo">
-      <label for="attr-capa">Capa</label>
-      <select id="attr-capa"></select>
     </div>
     <div class="campo">
       <label>Atributos adicionales</label>

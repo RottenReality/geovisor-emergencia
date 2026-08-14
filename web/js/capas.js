@@ -1,13 +1,40 @@
-/* Panel de capas: vectoriales y rasters en una sola lista ordenable. */
+/* Panel de capas, en dos grupos: imagenes debajo, dibujo encima.
+ *
+ * Los vectores van SIEMPRE por encima de las imagenes, porque se dibuja sobre
+ * la ortofoto y nunca al reves. Fijarlo asi no quita libertad: elimina la
+ * pregunta de si tal raster va antes o despues de tal capa de puntos, y deja
+ * el reordenamiento donde de verdad importa, que es dentro de cada grupo.
+ */
 
 import { api, avisar, escapar, $ } from './util.js';
 import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster } from './mapa.js';
 
-/** Lista mixta, del fondo al frente. */
+/** Lista completa, del fondo al frente: primero imagenes, luego dibujo. */
 export let items = [];
 
 let expandida = null;
 let sondeo = null;
+
+const GRUPOS = [
+  { clave: 'raster', titulo: 'Imágenes', vacio: 'Sin imágenes cargadas.' },
+  { clave: 'vector', titulo: 'Dibujo',   vacio: 'Sin capas de dibujo.' },
+];
+
+const grupoDe = (item) => (item.esRaster ? 'raster' : 'vector');
+
+/** Grupos apagados enteros. Es una vista local, no se guarda en el servidor. */
+const gruposOcultos = new Set();
+
+const plegados = new Set(
+  JSON.parse(localStorage.getItem('geovisor.plegados') || '[]'));
+const guardarPlegados = () =>
+  localStorage.setItem('geovisor.plegados', JSON.stringify([...plegados]));
+
+/** Visibilidad real: la de la capa, apagada si su grupo esta apagado. */
+const efectivo = (item) => ({
+  ...item,
+  visible: item.visible && !gruposOcultos.has(grupoDe(item)),
+});
 
 export async function cargar() {
   const [capas, rasters] = await Promise.all([
@@ -15,15 +42,24 @@ export async function cargar() {
     api('/api/rasters').catch(() => []),
   ]);
 
+  const porOrden = (a, b) => (a.orden ?? 0) - (b.orden ?? 0);
   items = [
-    ...capas.map((c) => ({ ...c, esRaster: false })),
-    ...rasters.map((r) => ({ ...r, esRaster: true })),
-  ].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+    ...rasters.map((r) => ({ ...r, esRaster: true })).sort(porOrden),
+    ...capas.map((c) => ({ ...c, esRaster: false })).sort(porOrden),
+  ];
 
   pintar();
-  sincronizarCapas(items.filter((i) => !i.esRaster || i.estado === 'listo'));
+  sincronizarCapas(
+    items.filter((i) => !i.esRaster || i.estado === 'listo').map(efectivo));
   vigilarConversiones();
+  // Quien dependa de la lista de capas (el selector de destino al dibujar) se
+  // entera por aqui, sin que este modulo tenga que conocerlo.
+  document.dispatchEvent(new CustomEvent('capas:cambiadas'));
 }
+
+/** Devuelve el mapa a la visibilidad real de las capas.
+ *  Lo usa la comparacion al cerrarse, tras haber ocultado el resto. */
+export const reaplicarEstilos = () => aplicarEstilos(items.map(efectivo));
 
 /** Mientras haya un raster convirtiendose, refrescar hasta que termine. */
 function vigilarConversiones() {
@@ -47,15 +83,60 @@ function pintar() {
     return;
   }
 
-  // Se pinta de frente a fondo: arriba en la lista = encima en el mapa, que es
-  // como lo esperan quienes vienen de QGIS o ArcGIS.
-  [...items].reverse().forEach((item, indice, arreglo) => {
-    const clave = `${item.esRaster ? 'r' : 'c'}${item.id}`;
-    const estado = ESTADOS[item.estado];
-    const fila = document.createElement('div');
-    fila.className = 'capa-fila' + (expandida === clave ? ' abierta' : '');
+  // Los grupos se pintan de arriba abajo igual que se ven en el mapa: el
+  // dibujo encima de las imagenes.
+  for (const grupo of [...GRUPOS].reverse()) {
+    const delGrupo = items.filter((i) => grupoDe(i) === grupo.clave);
+    const plegado = plegados.has(grupo.clave);
+    const apagado = gruposOcultos.has(grupo.clave);
 
-    fila.innerHTML = `
+    const cabecera = document.createElement('div');
+    cabecera.className = 'grupo-cabecera' + (plegado ? ' plegado' : '');
+    cabecera.innerHTML = `
+      <button class="chevron" aria-expanded="${!plegado}"
+              aria-label="${plegado ? 'Desplegar' : 'Plegar'} ${grupo.titulo}">&#9662;</button>
+      <input type="checkbox" ${apagado ? '' : 'checked'}
+             aria-label="Mostrar todo el grupo ${grupo.titulo}">
+      <span class="titulo">${grupo.titulo}</span>
+      <span class="conteo">${delGrupo.length}</span>`;
+
+    cabecera.querySelector('.chevron').onclick = () => {
+      if (plegado) plegados.delete(grupo.clave); else plegados.add(grupo.clave);
+      guardarPlegados();
+      pintar();
+    };
+    cabecera.querySelector('input').onchange = (evento) => {
+      if (evento.target.checked) gruposOcultos.delete(grupo.clave);
+      else gruposOcultos.add(grupo.clave);
+      aplicarEstilos(items.map(efectivo));
+      pintar();
+    };
+    lista.appendChild(cabecera);
+
+    if (plegado) continue;
+
+    const cuerpo = document.createElement('div');
+    cuerpo.className = 'grupo-cuerpo';
+    if (!delGrupo.length) {
+      cuerpo.innerHTML = `<p class="vacio">${grupo.vacio}</p>`;
+    } else {
+      // Dentro del grupo tambien se pinta de frente a fondo: arriba en la
+      // lista = encima en el mapa, como en QGIS o ArcGIS.
+      [...delGrupo].reverse().forEach((item, indice, arreglo) =>
+        cuerpo.appendChild(pintarFila(item, indice, arreglo.length, apagado)));
+    }
+    lista.appendChild(cuerpo);
+  }
+}
+
+function pintarFila(item, indice, total, grupoApagado) {
+  const clave = `${item.esRaster ? 'r' : 'c'}${item.id}`;
+  const estado = ESTADOS[item.estado];
+  const fila = document.createElement('div');
+  fila.className = 'capa-fila' + (expandida === clave ? ' abierta' : '')
+                               + (grupoApagado ? ' atenuada' : '');
+
+  fila.innerHTML = `
       <div class="capa-cabecera">
         <input type="checkbox" ${item.visible ? 'checked' : ''}
                aria-label="Mostrar ${escapar(item.nombre)}">
@@ -66,7 +147,7 @@ function pintar() {
                  : `<span class="conteo">${item.esRaster ? 'ráster' : item.total}</span>`}
         <button class="icono" data-accion="subir"    ${indice === 0 ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
-        <button class="icono" data-accion="bajar"    ${indice === arreglo.length - 1 ? 'disabled' : ''}
+        <button class="icono" data-accion="bajar"    ${indice === total - 1 ? 'disabled' : ''}
                 title="Enviar atrás" aria-label="Enviar atrás">&darr;</button>
         <button class="icono" data-accion="expandir" title="Opciones" aria-label="Opciones">&#8942;</button>
       </div>
@@ -95,36 +176,35 @@ function pintar() {
         <button data-accion="borrar" class="peligro">Eliminar capa</button>
       </div>`;
 
-    fila.querySelector('input[type=checkbox]').onchange = (e) =>
-      actualizar(item, { visible: e.target.checked });
+  fila.querySelector('input[type=checkbox]').onchange = (e) =>
+    actualizar(item, { visible: e.target.checked });
 
-    fila.querySelectorAll('[data-accion]').forEach((control) => {
-      const accion = control.dataset.accion;
-      if (accion === 'opacidad') {
-        control.oninput = (e) => {
-          const valor = Number(e.target.value) / 100;
-          item.opacidad = valor;
-          fila.querySelector('output').textContent = `${e.target.value}%`;
-          aplicarEstilos([item]);
-        };
-        control.onchange = (e) => actualizar(item, { opacidad: Number(e.target.value) / 100 }, false);
-      } else if (accion === 'color') {
-        control.onchange = (e) => actualizar(item, { color: e.target.value });
-      } else if (accion === 'combinacion') {
-        control.onchange = async (e) => {
-          await actualizar(item, { combinacion: e.target.value }, false);
-          // La URL de las teselas lleva la combinacion: hay que rehacer la fuente.
-          olvidarRaster(item.id);
-          await cargar();
-          avisar(`Vista cambiada a ${e.target.selectedOptions[0].textContent.toLowerCase()}.`);
-        };
-      } else {
-        control.onclick = () => manejar(accion, item, clave);
-      }
-    });
-
-    lista.appendChild(fila);
+  fila.querySelectorAll('[data-accion]').forEach((control) => {
+    const accion = control.dataset.accion;
+    if (accion === 'opacidad') {
+      control.oninput = (e) => {
+        const valor = Number(e.target.value) / 100;
+        item.opacidad = valor;
+        fila.querySelector('output').textContent = `${e.target.value}%`;
+        aplicarEstilos([efectivo(item)]);
+      };
+      control.onchange = (e) => actualizar(item, { opacidad: Number(e.target.value) / 100 }, false);
+    } else if (accion === 'color') {
+      control.onchange = (e) => actualizar(item, { color: e.target.value });
+    } else if (accion === 'combinacion') {
+      control.onchange = async (e) => {
+        await actualizar(item, { combinacion: e.target.value }, false);
+        // La URL de las teselas lleva la combinacion: hay que rehacer la fuente.
+        olvidarRaster(item.id);
+        await cargar();
+        avisar(`Vista cambiada a ${e.target.selectedOptions[0].textContent.toLowerCase()}.`);
+      };
+    } else {
+      control.onclick = () => manejar(accion, item, clave);
+    }
   });
+
+  return fila;
 }
 
 async function manejar(accion, item, clave) {
@@ -166,11 +246,13 @@ async function manejar(accion, item, clave) {
   }
 }
 
-/** Intercambia el orden con la capa vecina. Solo dos peticiones, no toda la lista. */
+/** Intercambia el orden con la capa vecina DENTRO de su grupo.
+ *  Solo dos peticiones, no toda la lista. */
 async function intercambiar(item, direccion) {
-  const posicion = items.findIndex((i) => i.id === item.id && i.esRaster === item.esRaster);
-  const vecina = items[posicion + direccion];
-  if (!vecina) return;
+  const hermanas = items.filter((i) => grupoDe(i) === grupoDe(item));
+  const posicion = hermanas.findIndex((i) => i.id === item.id);
+  const vecina = hermanas[posicion + direccion];
+  if (!vecina) return;   // ya esta en el borde de su grupo
 
   const ordenItem = item.orden ?? posicion + 1;
   const ordenVecina = vecina.orden ?? posicion + 1 + direccion;
@@ -192,7 +274,7 @@ async function intercambiar(item, direccion) {
 
 async function actualizar(item, cambios, recargar = true) {
   Object.assign(item, cambios);
-  aplicarEstilos([item]);
+  aplicarEstilos([efectivo(item)]);
   try {
     await api(`/api/${item.esRaster ? 'rasters' : 'capas'}/${item.id}`, {
       method: 'PATCH',
