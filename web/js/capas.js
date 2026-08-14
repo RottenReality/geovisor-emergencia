@@ -208,10 +208,7 @@ function pintarFila(item, indice, total, grupoApagado) {
             ${item.admite_swir ? `<option value="swir" ${item.combinacion === 'swir' ? 'selected' : ''}>SWIR (suelo y humedad)</option>` : ''}
             <option value="gris" ${item.combinacion === 'gris' ? 'selected' : ''}>Una banda en gris</option>
           </select>
-          ${item.tiene_visible ? '' :
-            '<p class="nota">Este archivo solo trae borde rojo, infrarrojo y SWIR (B5–B12). ' +
-            'No contiene rojo, verde ni azul, así que el color real no existe para él. ' +
-            'Para ver la ciudad en color natural usa la capa de 10 m.</p>'}` : '') : `
+          ` : '') : `
           <label>Color</label>
           <input type="color" value="${escapar(item.color)}" data-accion="color">`}
         <div class="fila">

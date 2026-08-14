@@ -29,6 +29,17 @@
 		file_server
 	}
 
+	# El codigo de la aplicacion siempre se revalida. Sin esto el navegador
+	# aplica cache heuristica y puede seguir ejecutando una version vieja del
+	# visor durante horas, con lo que arreglar algo no sirve de nada hasta que
+	# alguien recarga a la fuerza. Con ETag, revalidar cuesta un 304.
+	@aplicacion path / /index.html /login.html /estilos.css /js/*
+	header @aplicacion Cache-Control "no-cache"
+
+	# Las librerias vendorizadas no cambian nunca: esas si se cachean largo.
+	@vendor path /vendor/*
+	header @vendor Cache-Control "public, max-age=604800, immutable"
+
 	header {
 		X-Content-Type-Options nosniff
 		X-Frame-Options SAMEORIGIN
