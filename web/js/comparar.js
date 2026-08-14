@@ -175,7 +175,7 @@ function anadirCapa(destino, item) {
     destino.addSource('cmp', {
       type: 'raster',
       tiles: [`${location.origin}/api/rasters/${item.id}/tiles/{z}/{x}/{y}.png` +
-              `?c=${item.combinacion || 'natural'}`],
+              `?c=${item.combinacion || 'natural'}&r=${item.render || 0}`],
       tileSize: 256,
       bounds: item.bounds || undefined,
     });

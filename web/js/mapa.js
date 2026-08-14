@@ -150,10 +150,11 @@ export function sincronizarCapas(items) {
       if (!mapa.getSource(clave)) {
         mapa.addSource(clave, {
           type: 'raster',
-          // La combinacion de bandas va en la URL para que al cambiarla el
-          // navegador no siga mostrando las teselas cacheadas de la anterior.
+          // 'r' es la huella del plan de pintado que calcula el servidor:
+          // cualquier cambio en como se pinta el raster cambia la URL y el
+          // navegador deja de servir lo que tenia guardado.
           tiles: [`${location.origin}/api/rasters/${item.id}/tiles/{z}/{x}/{y}.png` +
-                  `?c=${item.combinacion || 'natural'}`],
+                  `?c=${item.combinacion || 'natural'}&r=${item.render || 0}`],
           tileSize: 256,
           bounds: item.bounds || undefined,
         });

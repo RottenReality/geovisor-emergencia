@@ -11,6 +11,7 @@ archivo del lado del servidor. Sin eso, cualquiera podria hacer que TiTiler
 leyera rutas o URLs arbitrarias del servidor.
 """
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -372,6 +373,14 @@ async def listar():
         bandas = json.loads(dato.pop("bandas") or "[]")
         papeles = _identificar_bandas(bandas) if bandas else {}
         dato["num_bandas"] = len(bandas)
+
+        # Huella del plan de pintado. Viaja en la URL de las teselas para que
+        # cualquier cambio en como se pinta el raster invalide lo que el
+        # navegador tenga guardado. Sin esto, arreglar el pintado no sirve de
+        # nada durante las 24 horas que dura la cache.
+        plan = _plan_de_pintado(bandas, dato["combinacion"]) if bandas else {}
+        dato["render"] = hashlib.sha1(
+            json.dumps(plan, sort_keys=True, default=str).encode()).hexdigest()[:10]
         # El visor solo necesita saber que combinaciones ofrecer.
         dato["admite_infrarrojo"] = bool(papeles.get("nir")) and papeles.get("visible", True)
         dato["admite_swir"] = (bool(papeles.get("swir")) and bool(papeles.get("nir"))

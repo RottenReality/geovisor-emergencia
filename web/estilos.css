@@ -321,6 +321,14 @@ button.chevron.abierto { transform: rotate(180deg); }
 }
 .estado.espera { color: var(--foco); }
 .estado.malo { color: #ff8b7f; }
+.estado.aviso {
+  color: var(--foco);
+  border: 1px solid #4a4126;
+  border-radius: 3px;
+  padding: 1px 5px;
+  cursor: help;
+  white-space: nowrap;
+}
 
 button.icono {
   flex: 0 0 auto;

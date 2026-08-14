@@ -183,7 +183,9 @@ function pintarFila(item, indice, total, grupoApagado) {
           ${escapar(item.nombre)}
         </button>
         ${estado ? `<span class="estado ${estado[1]}">${estado[0]}</span>`
-                 : `<span class="conteo">${item.esRaster ? 'ráster' : item.total}</span>`}
+          : item.esRaster && item.tiene_visible === false
+            ? `<span class="estado aviso" title="Este archivo no trae bandas visibles (rojo, verde, azul). Solo tiene borde rojo, infrarrojo y SWIR, así que el color real no se puede reconstruir.">sin color real</span>`
+            : `<span class="conteo">${item.esRaster ? 'ráster' : item.total}</span>`}
         <button class="icono" data-accion="subir"    ${indice === 0 ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
         <button class="icono" data-accion="bajar"    ${indice === total - 1 ? 'disabled' : ''}
@@ -201,13 +203,15 @@ function pintarFila(item, indice, total, grupoApagado) {
           <label>Combinación de bandas (${item.num_bandas} bandas)</label>
           <select data-accion="combinacion">
             <option value="natural" ${item.combinacion === 'natural' ? 'selected' : ''}>
-              ${item.tiene_visible ? 'Color natural' : 'Predeterminada'}</option>
+              ${item.tiene_visible ? 'Color natural' : 'SWIR / infrarrojo (única posible)'}</option>
             ${item.admite_infrarrojo ? `<option value="infrarrojo" ${item.combinacion === 'infrarrojo' ? 'selected' : ''}>Falso color (infrarrojo)</option>` : ''}
             ${item.admite_swir ? `<option value="swir" ${item.combinacion === 'swir' ? 'selected' : ''}>SWIR (suelo y humedad)</option>` : ''}
             <option value="gris" ${item.combinacion === 'gris' ? 'selected' : ''}>Una banda en gris</option>
           </select>
           ${item.tiene_visible ? '' :
-            '<p class="nota">Sin bandas visibles: se muestra una composición SWIR/NIR, útil para suelo desnudo y humedad.</p>'}` : '') : `
+            '<p class="nota">Este archivo solo trae borde rojo, infrarrojo y SWIR (B5–B12). ' +
+            'No contiene rojo, verde ni azul, así que el color real no existe para él. ' +
+            'Para ver la ciudad en color natural usa la capa de 10 m.</p>'}` : '') : `
           <label>Color</label>
           <input type="color" value="${escapar(item.color)}" data-accion="color">`}
         <div class="fila">
