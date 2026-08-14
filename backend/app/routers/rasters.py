@@ -291,11 +291,19 @@ def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
     # Transparencia de los bordes. Sin esto la escena se dibuja sobre un
     # rectangulo negro que tapa lo que haya debajo.
     declarado = next((b.get("nodata") for b in bandas if b.get("nodata") is not None), None)
+    tipo = (bandas[0].get("tipo") or "").lower()
+
     if declarado is not None:
         plan["nodata"] = declarado
-    elif all(b.get("tipo", "").lower() != "byte" for b in bandas):
-        # Los productos satelitales rellenan con 0 aunque no lo declaren. En
-        # una ortofoto de 8 bits, en cambio, el 0 es negro legitimo.
+    elif tipo.startswith("float"):
+        # Los productos de reflectancia rellenan con NaN y casi nunca lo
+        # declaran. Comprobado en estos Sentinel-2: el pixel de esquina es NaN
+        # y el minimo real es 0.002, asi que el cero no aparece como dato
+        # valido y buscarlo no serviria de nada.
+        plan["nodata"] = "nan"
+    elif tipo and tipo != "byte":
+        # Enteros de 16 bits: el relleno convencional es 0. En una ortofoto de
+        # 8 bits no se asume nada, porque ahi el 0 es negro legitimo.
         plan["nodata"] = 0
 
     return plan
