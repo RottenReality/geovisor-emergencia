@@ -10,6 +10,7 @@ import * as dibujo from './dibujo.js';
 import * as ficha from './ficha.js';
 import * as subidas from './subidas.js';
 import * as comparar from './comparar.js';
+import * as simbologia from './simbologia.js';
 import { PRIORITARIAS, RESTO, COLOMBIA } from './ciudades.js';
 
 // ---------------------------------------------------------------------------
@@ -222,9 +223,26 @@ $('salir').onclick = async () => {
   location.href = '/login.html';
 };
 
+// ---------------------------------------------------------------------------
+// Simbologia y leyenda
+// ---------------------------------------------------------------------------
+$('sim-cerrar').onclick = () => simbologia.cerrar();
+
+// La leyenda se pliega y se recuerda plegada: en un portatil de 13" sobre el
+// terreno, cada centimetro de mapa cuenta.
+const plegada = localStorage.getItem('geovisor.leyenda') === 'plegada';
+$('leyenda').classList.toggle('plegada', plegada);
+$('leyenda-plegar').setAttribute('aria-expanded', String(!plegada));
+$('leyenda-plegar').onclick = () => {
+  const ahora = $('leyenda').classList.toggle('plegada');
+  $('leyenda-plegar').setAttribute('aria-expanded', String(!ahora));
+  localStorage.setItem('geovisor.leyenda', ahora ? 'plegada' : 'abierta');
+};
+
 document.addEventListener('keydown', (evento) => {
   if (evento.key !== 'Escape') return;
-  if ($('telon-comparar').classList.contains('visible')) {
+  if (simbologia.estaAbierto()) simbologia.cerrar();
+  else if ($('telon-comparar').classList.contains('visible')) {
     $('telon-comparar').classList.remove('visible');
   } else if (dibujo.hayModal()) dibujo.cerrarModal();
   else if (dibujo.dibujando()) dibujo.activar(null);

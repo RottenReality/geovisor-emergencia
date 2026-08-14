@@ -63,6 +63,75 @@ export const coleccionVacia = () => ({ type: 'FeatureCollection', features: [] }
 /** Capas de datos actualmente montadas, para poder reordenar sin recrearlas. */
 let montadas = [];
 
+// ---------------------------------------------------------------------------
+// Color tematico y filtro por atributo
+// ---------------------------------------------------------------------------
+
+/**
+ * Color con el que se pinta una capa vectorial.
+ *
+ * Se calcula aqui y no en la tesela a proposito. Si el color viajara dentro
+ * del MVT, cambiarlo obligaria a volver a descargar todas las teselas, y hasta
+ * que eso ocurriera el mapa seguiria mostrando el color anterior. Calculandolo
+ * en el estilo, recolorear es instantaneo y no cuesta ni un byte de red.
+ *
+ * Con simbologia tematica devuelve una expresion que lee `valor`, el unico
+ * atributo que el servidor mete en la tesela para esta capa.
+ */
+export function expresionColor(item) {
+  const base = item.color || '#e63946';
+  const estilo = item.estilo;
+  if (!estilo || !estilo.campo) return base;
+
+  if (estilo.modo === 'categorias') {
+    const pares = Object.entries(estilo.colores || {});
+    if (!pares.length) return base;
+    // 'has' descarta los elementos sin ese atributo: sin el, `to-string` los
+    // convertiria en cadena vacia y se pintarian todos como una categoria mas.
+    return ['case', ['has', 'valor'],
+      ['match', ['to-string', ['get', 'valor']],
+        ...pares.flatMap(([valor, color]) => [valor, color]), base],
+      base];
+  }
+
+  if (estilo.modo === 'rangos') {
+    const cortes = estilo.cortes || [];
+    const colores = estilo.colores || [];
+    if (cortes.length < 2 || colores.length !== cortes.length - 1) return base;
+    const paso = ['step', ['to-number', ['get', 'valor'], 0], colores[0]];
+    for (let i = 1; i < colores.length; i++) paso.push(cortes[i], colores[i]);
+    return ['case', ['has', 'valor'], paso, base];
+  }
+
+  return base;
+}
+
+/** Filtros por atributo, por capa. Locales al navegador: ver simbologia.js. */
+const filtros = new Map();
+
+const PARTES = [
+  ['-relleno', ES_POLIGONO],
+  ['-borde', ['any', ES_POLIGONO, ES_LINEA]],
+  ['-punto', ES_PUNTO],
+];
+
+const filtroDe = (capaId, tipo) => {
+  const base = ['all', ['==', ['get', 'capa_id'], capaId], tipo];
+  const extra = filtros.get(capaId);
+  return extra ? [...base, extra] : base;
+};
+
+/** Aplica (o quita, con expresion nula) el filtro por atributo de una capa. */
+export function fijarFiltro(capaId, expresion) {
+  if (expresion) filtros.set(capaId, expresion);
+  else filtros.delete(capaId);
+
+  const clave = `capa-${capaId}`;
+  for (const [sufijo, tipo] of PARTES) {
+    if (mapa.getLayer(clave + sufijo)) mapa.setFilter(clave + sufijo, filtroDe(capaId, tipo));
+  }
+}
+
 export function inicializarFuentes() {
   mapa.addSource('datos', {
     type: 'vector',
@@ -161,25 +230,25 @@ export function sincronizarCapas(items) {
       }
       mapa.addLayer({ id: clave, type: 'raster', source: clave, paint: { 'raster-opacity': 1 } });
     } else {
-      const filtroCapa = ['==', ['get', 'capa_id'], item.id];
+      const color = expresionColor(item);
       mapa.addLayer({
         id: `${clave}-relleno`, type: 'fill', source: 'datos', 'source-layer': 'elementos',
-        filter: ['all', filtroCapa, ES_POLIGONO],
-        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.32 },
+        filter: filtroDe(item.id, ES_POLIGONO),
+        paint: { 'fill-color': color, 'fill-opacity': 0.32 },
       });
       mapa.addLayer({
         id: `${clave}-borde`, type: 'line', source: 'datos', 'source-layer': 'elementos',
-        filter: ['all', filtroCapa, ['any', ES_POLIGONO, ES_LINEA]],
+        filter: filtroDe(item.id, ['any', ES_POLIGONO, ES_LINEA]),
         paint: {
-          'line-color': ['get', 'color'],
+          'line-color': color,
           'line-width': ['case', ES_LINEA, 3.5, 2],
         },
       });
       mapa.addLayer({
         id: `${clave}-punto`, type: 'circle', source: 'datos', 'source-layer': 'elementos',
-        filter: ['all', filtroCapa, ES_PUNTO],
+        filter: filtroDe(item.id, ES_PUNTO),
         paint: {
-          'circle-color': ['get', 'color'],
+          'circle-color': color,
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 4, 12, 7, 18, 10],
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 1.6,
@@ -203,7 +272,7 @@ export function sincronizarCapas(items) {
   aplicarEstilos(items);
 }
 
-/** Visibilidad y opacidad, sin tocar el orden. */
+/** Visibilidad, opacidad y color, sin tocar el orden. */
 export function aplicarEstilos(items) {
   for (const item of items) {
     const clave = item.esRaster ? `raster-${item.id}` : `capa-${item.id}`;
@@ -221,12 +290,20 @@ export function aplicarEstilos(items) {
       if (!mapa.getLayer(id)) continue;
       mapa.setLayoutProperty(id, 'visibility', visible);
     }
-    if (mapa.getLayer(`${clave}-relleno`))
+
+    const color = expresionColor(item);
+    if (mapa.getLayer(`${clave}-relleno`)) {
+      mapa.setPaintProperty(`${clave}-relleno`, 'fill-color', color);
       mapa.setPaintProperty(`${clave}-relleno`, 'fill-opacity', 0.32 * opacidad);
-    if (mapa.getLayer(`${clave}-borde`))
+    }
+    if (mapa.getLayer(`${clave}-borde`)) {
+      mapa.setPaintProperty(`${clave}-borde`, 'line-color', color);
       mapa.setPaintProperty(`${clave}-borde`, 'line-opacity', opacidad);
-    if (mapa.getLayer(`${clave}-punto`))
+    }
+    if (mapa.getLayer(`${clave}-punto`)) {
+      mapa.setPaintProperty(`${clave}-punto`, 'circle-color', color);
       mapa.setPaintProperty(`${clave}-punto`, 'circle-opacity', opacidad);
+    }
   }
 }
 

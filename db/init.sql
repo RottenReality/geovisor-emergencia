@@ -44,6 +44,20 @@ ALTER TABLE capas ADD COLUMN IF NOT EXISTS orden    INTEGER;
 ALTER TABLE capas ADD COLUMN IF NOT EXISTS opacidad REAL NOT NULL DEFAULT 1;
 UPDATE capas SET orden = id WHERE orden IS NULL;
 
+-- Simbologia tematica: como pintar la capa segun uno de sus atributos.
+-- Se guarda en el servidor a proposito: el codigo de colores de "nivel de
+-- afectacion" es un acuerdo del equipo, y si cada quien lo viera distinto los
+-- informes y las capturas de pantalla dejarian de ser comparables.
+--   {"campo": "afectacion",
+--    "modo":  "categorias",
+--    "colores": {"severo": "#c1121f", "leve": "#e9c46a"}}
+--   {"campo": "viviendas", "modo": "rangos",
+--    "cortes": [0, 12, 34, 71, 187], "colores": ["#ffedbe", ...]}
+-- El FILTRO, en cambio, NO se guarda aqui: es local a cada navegador. Que
+-- alguien esconda datos a todo el equipo sin que se entere es justo lo que no
+-- puede pasar en una emergencia.
+ALTER TABLE capas ADD COLUMN IF NOT EXISTS estilo JSONB;
+
 -- ---------------------------------------------------------------------------
 -- Elementos: la geometria se guarda SIEMPRE en 4326 (estandar web).
 -- La reproyeccion a 9377 se hace al consultar, no al almacenar: asi el dato

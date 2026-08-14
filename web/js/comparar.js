@@ -12,7 +12,7 @@
  */
 
 import { avisar, escapar, $ } from './util.js';
-import { mapa, aplicarEstilos } from './mapa.js';
+import { mapa, aplicarEstilos, expresionColor } from './mapa.js';
 import { items, reaplicarEstilos } from './capas.js';
 
 let activa = false;
@@ -193,22 +193,25 @@ function anadirCapa(destino, item) {
   const esPoligono = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false];
   const esLinea = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false];
   const esPunto = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false];
+  // Mismo color (o misma simbologia tematica) que en el mapa principal, para
+  // que comparar no cambie el codigo de colores a mitad de analisis.
+  const color = expresionColor(item);
 
   destino.addLayer({
     id: 'cmp-relleno', type: 'fill', source: 'cmp', 'source-layer': 'elementos',
     filter: ['all', soloCapa, esPoligono],
-    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.32 },
+    paint: { 'fill-color': color, 'fill-opacity': 0.32 },
   });
   destino.addLayer({
     id: 'cmp-borde', type: 'line', source: 'cmp', 'source-layer': 'elementos',
     filter: ['all', soloCapa, ['any', esPoligono, esLinea]],
-    paint: { 'line-color': ['get', 'color'], 'line-width': 2 },
+    paint: { 'line-color': color, 'line-width': 2 },
   });
   destino.addLayer({
     id: 'cmp-punto', type: 'circle', source: 'cmp', 'source-layer': 'elementos',
     filter: ['all', soloCapa, esPunto],
     paint: {
-      'circle-color': ['get', 'color'], 'circle-radius': 6,
+      'circle-color': color, 'circle-radius': 6,
       'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.6,
     },
   });

@@ -160,8 +160,14 @@ async def borrar_feature(id_elemento: int):
 async def tesela(z: int, x: int, y: int):
     """Teselas MVT generadas en PostGIS.
 
-    Llevan lo minimo para dibujar y seleccionar: id, capa y color. Los
-    atributos se consultan aparte, al abrir la ficha.
+    Llevan lo minimo para dibujar y seleccionar: id, capa y, si la capa tiene
+    simbologia tematica, el valor del unico atributo por el que se clasifica.
+    El resto de atributos se consulta aparte, al abrir la ficha.
+
+    El color NO viaja aqui. Se aplica en el navegador a partir de la capa, que
+    ya se conoce: si viniera cocido en la tesela, recolorear una capa obligaria
+    a volver a descargarlas todas y hasta entonces el mapa seguiria mostrando
+    el color viejo.
     """
     if not 0 <= z <= 22:
         raise HTTPException(status_code=400, detail="Zoom fuera de rango")
@@ -174,7 +180,7 @@ async def tesela(z: int, x: int, y: int):
         f AS (
           SELECT e.id,
                  e.capa_id,
-                 COALESCE(c.color, '#e63946') AS color,
+                 NULLIF(e.propiedades ->> (c.estilo ->> 'campo'), '') AS valor,
                  ST_AsMVTGeom(ST_Transform(e.geom, 3857), b.env, 4096, 64, true) AS geom
           FROM elementos e
           CROSS JOIN b

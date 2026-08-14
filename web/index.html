@@ -176,6 +176,14 @@
   </div>
 </div>
 
+<!-- Leyenda de las capas clasificadas por atributo -->
+<aside id="leyenda" hidden>
+  <button id="leyenda-plegar" aria-expanded="true" aria-label="Plegar la leyenda">
+    <span class="chevron">&#9662;</span> Leyenda
+  </button>
+  <div id="leyenda-cuerpo"></div>
+</aside>
+
 <!-- Coordenadas del cursor -->
 <div id="coordenadas">
   <div><span class="rotulo">WGS84</span><span class="valor" id="coord-geo">—</span></div>
@@ -195,6 +203,17 @@
   <div class="modal">
     <h2>Comparar capas</h2>
     <div id="comparar-cuerpo"></div>
+  </div>
+</div>
+
+<!-- Modal de colores y filtro por atributo -->
+<div class="telon" id="telon-simbologia">
+  <div class="modal ancho">
+    <h2>Colores y filtro · <span id="simbologia-titulo"></span></h2>
+    <div id="simbologia-cuerpo"></div>
+    <div class="fila" style="margin-top:16px">
+      <button id="sim-cerrar" class="principal">Listo</button>
+    </div>
   </div>
 </div>
 

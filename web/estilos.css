@@ -329,6 +329,48 @@ button.chevron.abierto { transform: rotate(180deg); }
   cursor: help;
   white-space: nowrap;
 }
+/* Aviso de filtro: si alguien esta viendo solo una parte de una capa, tiene
+   que saberlo sin abrirla. Lo contrario -- creer que faltan datos -- es el
+   error caro en una emergencia. */
+button.estado.filtro {
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--foco);
+  background: rgba(255, 209, 102, .12);
+  border: 1px solid #4a4126;
+  border-radius: 3px;
+  line-height: 1.5;
+}
+button.estado.filtro:hover { background: rgba(255, 209, 102, .26); border-color: var(--foco); }
+
+.punto-color.tematica { border-radius: 2px; width: 10px; height: 14px; }
+
+/* Leyenda compacta dentro de la fila de la capa */
+.leyenda-mini {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 8px;
+}
+.par-leyenda {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--papel-2);
+}
+.par-leyenda .muestra {
+  flex: 0 0 auto;
+  width: 9px; height: 9px;
+  border-radius: 2px;
+}
 
 button.icono {
   flex: 0 0 auto;
@@ -595,6 +637,138 @@ table.atributos code {
 #rail.oculto ~ #coordenadas { left: 10px; }
 #rail.oculto ~ #medicion { left: 50%; }
 
+/* --- Leyenda flotante ---------------------------------------------------- */
+/* Un mapa tematico sin leyenda no es un mapa: los colores no significan nada.
+   Va sobre el mapa y no en el rail porque en campo el rail se cierra. */
+#leyenda {
+  position: absolute;
+  left: calc(var(--rail) + 10px);
+  bottom: 62px;
+  z-index: 9;
+  width: min(230px, calc(100vw - 24px));
+  max-height: 42vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(14, 19, 25, .92);
+  border: 1px solid var(--borde);
+  border-radius: 5px;
+  backdrop-filter: blur(6px);
+  transition: left .18s ease;
+  overflow: hidden;
+}
+#leyenda[hidden] { display: none; }
+#rail.oculto ~ #leyenda { left: 10px; }
+
+#leyenda-plegar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--papel-2);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+}
+#leyenda-plegar:hover { background: var(--tinta-3); color: var(--papel); }
+#leyenda-plegar .chevron { font-size: 11px; line-height: 1; transition: transform .15s ease; }
+#leyenda.plegada #leyenda-plegar .chevron { transform: rotate(-90deg); }
+#leyenda.plegada #leyenda-cuerpo { display: none; }
+
+#leyenda-cuerpo {
+  overflow-y: auto;
+  padding: 2px 9px 9px;
+}
+.leyenda-capa { margin-bottom: 9px; }
+.leyenda-capa:last-child { margin-bottom: 0; }
+.leyenda-titulo {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.leyenda-titulo .nombre {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.leyenda-titulo .campo {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--papel-2);
+}
+.leyenda-fila {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+  font-size: 11px;
+  color: var(--papel);
+}
+/* Tachada, no ausente: hay que poder ver que esa clase existe y esta filtrada. */
+.leyenda-fila.oculta { opacity: .35; text-decoration: line-through; }
+.leyenda-fila .muestra {
+  flex: 0 0 auto;
+  width: 11px; height: 11px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+.leyenda-fila .texto {
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* --- Panel de simbologia ------------------------------------------------- */
+.modal.ancho { max-width: 480px; }
+.aviso-tema {
+  padding: 7px 9px;
+  border-left: 2px solid var(--foco);
+  background: rgba(255, 209, 102, .08);
+  border-radius: 3px;
+}
+.leyenda-edit {
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid var(--borde);
+  border-radius: 5px;
+  padding: 4px 6px;
+}
+.leyenda-edit-fila {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+  font-size: 12.5px;
+}
+.leyenda-edit-fila input[type="checkbox"] {
+  flex: 0 0 auto; width: auto; margin: 0; accent-color: var(--ok);
+}
+.leyenda-edit-fila input[type="color"] { flex: 0 0 26px; width: 26px; height: 26px; }
+.leyenda-edit-fila .texto {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.leyenda-edit-fila .conteo { flex: 0 0 auto; }
+#simbologia-cuerpo input[type="number"] {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--papel);
+  background: var(--tinta-2);
+  border: 1px solid var(--borde);
+  border-radius: 5px;
+  padding: 8px 9px;
+}
+
 /* --- Modal -------------------------------------------------------------- */
 .telon {
   position: fixed;
@@ -811,6 +985,10 @@ table.atributos code {
   #rail.oculto ~ #medicion { bottom: 64px; }
   #coordenadas, #rail.oculto ~ #coordenadas { left: 10px; bottom: calc(66vh + 12px); }
   #rail.oculto ~ #coordenadas { bottom: 10px; }
+
+  #leyenda, #rail.oculto ~ #leyenda { left: 10px; max-height: 26vh; }
+  #leyenda { bottom: calc(66vh + 66px); }
+  #rail.oculto ~ #leyenda { bottom: 64px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
