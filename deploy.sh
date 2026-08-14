@@ -42,6 +42,15 @@ until docker exec geo_db pg_isready -U "${POSTGRES_USER:-geovisor}" -q 2>/dev/nu
 docker exec -i geo_db psql -U "${POSTGRES_USER:-geovisor}" -d "${POSTGRES_DB:-geovisor}" \
   -v ON_ERROR_STOP=1 -q < db/init.sql && echo "    esquema al dia"
 
+# El Caddyfile se monta desde el disco, asi que 'compose up' no reinicia el
+# contenedor cuando cambia y la configuracion nueva no llegaba a aplicarse.
+if docker ps --format '{{.Names}}' | grep -qx geo_caddy; then
+  log "Recargando configuracion de Caddy"
+  docker exec geo_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
+    && echo "    configuracion al dia" \
+    || { echo "    recarga fallida, reiniciando"; docker restart geo_caddy >/dev/null; }
+fi
+
 log "Estado"
 docker compose ps
 
