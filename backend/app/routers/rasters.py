@@ -627,7 +627,10 @@ async def vista(id_raster: int, banda: int | None = None, c: str | None = None):
 
     bandas = json.loads(fila["bandas"] or "[]")
     ruta = os.path.join(config.DIR_RASTERS, os.path.basename(fila["archivo"]))
-    parametros: dict = {"url": ruta, "max_size": 220}
+    # La compuesta se mira para decidir si el color quedo bien, y a 220 px una
+    # ciudad se promedia hasta parecer oscura y sin color. Las de cada banda
+    # solo tienen que dejar reconocer la banda, y ahi 200 px sobran.
+    parametros: dict = {"url": ruta, "max_size": 200 if banda is not None else 560}
 
     if banda is not None:
         if not any(b["indice"] == banda for b in bandas):
