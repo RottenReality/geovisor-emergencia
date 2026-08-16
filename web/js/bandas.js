@@ -31,8 +31,8 @@ const VISIBLES = [
   ['azul',  'Azul'],
 ];
 const EXTRA = [
-  ['nir',  'Infrarrojo (NIR)', 'Habilita la vista en falso color.'],
-  ['swir', 'SWIR',             'Habilita la vista de suelo y humedad.'],
+  ['nir',  'Infrarrojo (NIR)'],
+  ['swir', 'SWIR'],
 ];
 
 /** Etiqueta corta del papel, para marcar cada miniatura. */
@@ -47,20 +47,17 @@ const PRESETS = [
 ];
 
 const BALANCES = [
-  ['auto',  'Automático',
-   'Comparte el rango solo si consta que las bandas están en la misma escala.'],
-  ['comun', 'Igual para las tres',
-   'Color fiel. Correcto cuando el producto es de reflectancia (Sentinel, PlanetScope).'],
-  ['banda', 'Cada banda por separado',
-   'Más contraste. Necesario cuando el archivo trae valores crudos del sensor.'],
+  ['auto',  'Automático'],
+  ['comun', 'Igual para las tres'],
+  ['banda', 'Cada banda por separado'],
 ];
 
+/** De donde sale la asignacion. El caso 'supuesto' no aparece aqui: ya lo
+ *  dice el aviso de arriba, y decirlo dos veces solo estorba. */
 const ORIGEN = {
-  manual:         'Asignadas a mano por el equipo.',
-  interpretacion: 'El archivo declara qué banda es cada color.',
-  nombre:         'Deducidas del nombre de las bandas (B2, B3, B4…).',
-  supuesto:       'SUPUESTAS: el archivo no dice qué banda es cuál.',
-  unica:          'Una sola banda.',
+  manual:         'Asignadas a mano.',
+  interpretacion: 'Declaradas por el archivo.',
+  nombre:         'Deducidas del nombre de las bandas.',
 };
 
 // ---------------------------------------------------------------------------
@@ -134,13 +131,11 @@ function pintar() {
   const cuerpo = $('bandas-cuerpo');
 
   if (!item.num_bandas) {
-    cuerpo.innerHTML = '<p class="vacio">Esta imagen todavía no está medida. ' +
-      'Si acaba de cargarse, espera a que termine de convertirse.</p>';
+    cuerpo.innerHTML = '<p class="vacio">Aún sin medir: espera a que termine la conversión.</p>';
     return;
   }
   if (item.num_bandas === 1) {
-    cuerpo.innerHTML = '<p class="vacio">Esta imagen tiene una sola banda: ' +
-      'no hay nada que asignar, se dibuja en gris.</p>';
+    cuerpo.innerHTML = '<p class="vacio">Una sola banda: se dibuja en gris.</p>';
     return;
   }
 
@@ -161,24 +156,19 @@ function pintar() {
   cuerpo.innerHTML = `
     ${supuesto ? `
       <p class="aviso-tema" style="margin-bottom:12px">
-        Este archivo no dice qué banda es cuál, así que el orden de abajo es una
-        <strong>suposición</strong>. Si la imagen se ve azulada o verdosa,
-        casi siempre es que el rojo y el azul están cambiados.
+        Este archivo no dice qué banda es cuál: el orden de abajo es una
+        <strong>suposición</strong>.
       </p>` : ''}
 
     <div class="campo">
-      <label>Cómo se ve ahora</label>
+      <label>Vista actual</label>
       <img class="vista-compuesta" alt="Vista previa de la imagen completa"
            src="/api/rasters/${item.id}/vista.png?c=${encodeURIComponent(item.combinacion || 'natural')}&v=${item.render || 0}">
-      <p class="nota">${escapar(ORIGEN[papeles.origen] || '')}</p>
+      ${ORIGEN[papeles.origen] ? `<p class="nota">${ORIGEN[papeles.origen]}</p>` : ''}
     </div>
 
     <div class="campo">
-      <label>Cada banda por separado, en gris</label>
-      <p class="nota" style="margin:-2px 0 6px">
-        El infrarrojo es aquel donde la vegetación sale <em>clara</em> y el
-        asfalto oscuro. El azul es el de menos contraste, por la neblina.
-      </p>
+      <label>Bandas en gris</label>
       <div class="tira-bandas">
         ${indices.map((i) => `
           <figure>
@@ -199,9 +189,9 @@ function pintar() {
           <span class="etiqueta">${texto}</span>
           <select data-papel="${papel}">${opciones(papeles[papel], false)}</select>
         </div>`).join('')}
-      ${EXTRA.map(([papel, texto, pista]) => `
+      ${EXTRA.map(([papel, texto]) => `
         <div class="par-banda">
-          <span class="etiqueta" title="${escapar(pista)}">${texto}</span>
+          <span class="etiqueta">${texto}</span>
           <select data-papel="${papel}">${opciones(papeles[papel], true)}</select>
         </div>`).join('')}
     </div>
@@ -220,11 +210,10 @@ function pintar() {
       <div class="campo">
         <label>Reparto del contraste</label>
         <select id="bandas-balance">
-          ${BALANCES.map(([valor, texto, pista]) => `
-            <option value="${valor}" ${item.balance === valor ? 'selected' : ''}
-                    title="${escapar(pista)}">${texto}</option>`).join('')}
+          ${BALANCES.map(([valor, texto]) => `
+            <option value="${valor}" ${item.balance === valor ? 'selected' : ''}>${texto}</option>`).join('')}
         </select>
-        <p class="nota">${escapar(pistaBalance(item))}</p>
+        ${pistaBalance(item) ? `<p class="nota">${pistaBalance(item)}</p>` : ''}
       </div>` : ''}
 
     <button data-accion="auto" class="tenue" style="width:100%"
@@ -235,13 +224,11 @@ function pintar() {
   cablear();
 }
 
-/** Explica que quedo en efecto, que en 'Automático' no es evidente. */
+/** Solo en 'Automático', que es el unico caso donde el selector no basta para
+ *  saber que quedo aplicado. */
 function pistaBalance(item) {
-  if (item.balance === 'comun') return 'Las tres bandas comparten un mismo rango.';
-  if (item.balance === 'banda') return 'Cada banda se estira a su propio rango.';
-  return item.mismo_rango
-    ? 'En efecto: un mismo rango para las tres (las bandas están en la misma escala).'
-    : 'En efecto: cada banda por separado (las bandas no están en la misma escala).';
+  if (item.balance !== 'auto') return '';
+  return item.mismo_rango ? 'En efecto: mismo rango.' : 'En efecto: por banda.';
 }
 
 function cablear() {

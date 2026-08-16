@@ -212,10 +212,10 @@ function pintarFila(item, indice, total, grupoApagado) {
                 title="Estás viendo solo una parte de esta capa. Clic para ver todo.">filtro</button>` : ''}
         ${estado ? `<span class="estado ${estado[1]}">${estado[0]}</span>`
           : item.esRaster && item.tiene_visible === false
-            ? `<span class="estado aviso" title="Este archivo no trae bandas visibles (rojo, verde, azul). Solo tiene borde rojo, infrarrojo y SWIR, así que el color real no se puede reconstruir.">sin color real</span>`
+            ? `<span class="estado aviso" title="Sin bandas visibles: solo borde rojo, infrarrojo y SWIR.">sin color real</span>`
             : item.esRaster && item.papeles?.origen === 'supuesto'
               ? `<button class="estado aviso" data-accion="bandas"
-                  title="El archivo no dice qué banda es cuál, así que el orden está supuesto. Si el color se ve raro, revísalo aquí.">bandas?</button>`
+                  title="El archivo no dice qué banda es cuál: orden supuesto.">bandas?</button>`
               : `<span class="conteo">${item.esRaster ? 'ráster' : item.total}</span>`}
         <button class="icono" data-accion="subir"    ${indice === 0 ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
@@ -240,7 +240,7 @@ function pintarFila(item, indice, total, grupoApagado) {
             <option value="gris" ${item.combinacion === 'gris' ? 'selected' : ''}>Una banda en gris</option>
           </select>
           <button data-accion="bandas" style="width:100%;margin-top:8px">
-            Ajustar imagen (bandas y color)…
+            Ajustar bandas y contraste…
           </button>
           ` : '') : `
           <label>Color${entradas.length ? ' de base' : ''}</label>
