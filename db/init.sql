@@ -116,6 +116,20 @@ ALTER TABLE rasters ADD COLUMN IF NOT EXISTS autor    TEXT;
 ALTER TABLE rasters ADD COLUMN IF NOT EXISTS bandas      JSONB;
 ALTER TABLE rasters ADD COLUMN IF NOT EXISTS combinacion TEXT NOT NULL DEFAULT 'natural';
 
+-- Asignacion MANUAL de que banda es cual, cuando el archivo no lo dice.
+-- Cada mision entrega el apilado en su propio orden (PlanetScope y Sentinel
+-- van Azul-Verde-Rojo-NIR; Skysat y buena parte de la fotografia aerea van
+-- Rojo-Verde-Azul-NIR) y muchos GeoTIFF no declaran ni interpretacion de
+-- color ni nombre de banda. Adivinar mal invierte rojo y azul, y la escena
+-- sale azulada. NULL = deducirlo del archivo.
+--   {"rojo": 3, "verde": 2, "azul": 1, "nir": 4, "swir": null}
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS papeles JSONB;
+
+-- Como repartir el contraste entre las tres bandas del color natural:
+--   NULL/'auto' deducirlo,  'comun' el mismo rango para las tres (color fiel),
+--   'banda'   cada banda a su propio rango (mas contraste, pero tine).
+ALTER TABLE rasters ADD COLUMN IF NOT EXISTS balance TEXT;
+
 -- Cola de conversion: el worker toma los 'pendiente', y 'procesando_desde'
 -- permite recuperar los que quedaron colgados por un reinicio.
 ALTER TABLE rasters ADD COLUMN IF NOT EXISTS origen           TEXT;

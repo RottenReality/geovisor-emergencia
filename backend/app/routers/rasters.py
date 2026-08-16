@@ -30,6 +30,13 @@ router = APIRouter(prefix="/api/rasters", dependencies=[Depends(requiere_sesion)
 EXTENSIONES = (".tif", ".tiff", ".cog")
 COMBINACIONES = ("natural", "infrarrojo", "swir", "gris")
 
+# Papeles que puede desempenar una banda. Los tres primeros son obligatorios
+# para poder componer una imagen; los otros dos habilitan el falso color.
+PAPELES = ("rojo", "verde", "azul", "nir", "swir")
+
+# Como repartir el contraste entre las tres bandas de una composicion.
+BALANCES = ("auto", "comun", "banda")
+
 # TiTiler cambio la forma de sus rutas entre versiones, asi que se le pregunta
 # cual expone en vez de fijarla a ciegas.
 #
@@ -76,6 +83,18 @@ class RasterParche(BaseModel):
     opacidad: float | None = Field(default=None, ge=0, le=1)
     orden: int | None = None
     combinacion: str | None = None
+
+
+class BandasEntrada(BaseModel):
+    """Asignacion manual de bandas y reparto del contraste.
+
+    Se manda siempre el estado completo, no un parche: `papeles = null` es
+    "vuelve a deducirlo del archivo" y `balance = "auto"` lo mismo para el
+    contraste. Con COALESCE no habria forma de expresar ese "quitalo".
+    """
+
+    papeles: dict[str, int | None] | None = None
+    balance: str = "auto"
 
 
 class Importacion(BaseModel):
@@ -184,14 +203,30 @@ _POR_NOMBRE = {
 }
 
 
-def _identificar_bandas(bandas: list[dict]) -> dict:
+def _identificar_bandas(bandas: list[dict], manual: dict | None = None) -> dict:
     """Averigua que indice es el rojo, el verde, el azul y el infrarrojo.
 
-    Se intenta por interpretacion de color, luego por nombre de banda y, si el
-    archivo no dice nada, se asume el apilado habitual de PlanetScope y
-    Sentinel-2: Azul, Verde, Rojo, NIR.
+    Por orden de fiabilidad: lo que haya asignado el equipo a mano, luego la
+    interpretacion de color que declare el archivo, luego el nombre de las
+    bandas y, si nada de eso existe, el apilado habitual de PlanetScope y
+    Sentinel-2 (Azul, Verde, Rojo, NIR).
+
+    Ese ultimo caso es una SUPOSICION y se marca como tal en 'origen', porque
+    cada mision entrega el apilado en su propio orden: Skysat y buena parte de
+    la fotografia aerea van Rojo, Verde, Azul, NIR, justo al reves. Adivinar
+    mal intercambia el rojo con el azul y la escena sale azulada. Por eso el
+    visor deja corregirlo a mano y avisa cuando lo que hay es una suposicion.
     """
     total = len(bandas)
+    existentes = {b["indice"] for b in bandas}
+
+    if manual:
+        elegidas = {p: manual.get(p) for p in PAPELES}
+        # Un indice fuera de rango se ignora en vez de romper el pintado: la
+        # asignacion pudo guardarse antes de volver a medir el archivo.
+        elegidas = {p: (i if i in existentes else None) for p, i in elegidas.items()}
+        if all(elegidas[p] for p in ("rojo", "verde", "azul")):
+            return {**elegidas, "visible": True, "origen": "manual"}
 
     por_interp: dict[str, int] = {}
     for banda in bandas:
@@ -204,7 +239,7 @@ def _identificar_bandas(bandas: list[dict]) -> dict:
         usadas = {rojo, verde, azul}
         nir = next((b["indice"] for b in bandas if b["indice"] not in usadas), None)
         return {"rojo": rojo, "verde": verde, "azul": azul, "nir": nir,
-                "swir": None, "visible": True}
+                "swir": None, "visible": True, "origen": "interpretacion"}
 
     por_nombre: dict[str, int] = {}
     for banda in bandas:
@@ -217,7 +252,7 @@ def _identificar_bandas(bandas: list[dict]) -> dict:
         return {"rojo": por_nombre["rojo"], "verde": por_nombre["verde"],
                 "azul": por_nombre["azul"], "nir": por_nombre.get("nir"),
                 "swir": por_nombre.get("swir2") or por_nombre.get("swir1"),
-                "visible": True}
+                "visible": True, "origen": "nombre"}
 
     # Productos sin ninguna banda visible: los 20 m de Sentinel-2 traen borde
     # rojo, NIR estrecho y SWIR (B5,B6,B7,B8A,B11,B12). Ahi el color natural no
@@ -227,21 +262,103 @@ def _identificar_bandas(bandas: list[dict]) -> dict:
     if swir and por_nombre.get("nir"):
         return {"rojo": swir, "verde": por_nombre["nir"],
                 "azul": por_nombre.get("bordeojo", 1),
-                "nir": por_nombre["nir"], "swir": swir, "visible": False}
+                "nir": por_nombre["nir"], "swir": swir, "visible": False,
+                "origen": "nombre"}
 
     if total >= 4:
-        return {"rojo": 3, "verde": 2, "azul": 1, "nir": 4, "swir": None, "visible": True}
+        return {"rojo": 3, "verde": 2, "azul": 1, "nir": 4, "swir": None,
+                "visible": True, "origen": "supuesto"}
     if total == 3:
-        return {"rojo": 1, "verde": 2, "azul": 3, "nir": None, "swir": None, "visible": True}
-    return {"rojo": 1, "verde": 1, "azul": 1, "nir": None, "swir": None, "visible": True}
+        return {"rojo": 1, "verde": 2, "azul": 3, "nir": None, "swir": None,
+                "visible": True, "origen": "supuesto"}
+    return {"rojo": 1, "verde": 1, "azul": 1, "nir": None, "swir": None,
+            "visible": True, "origen": "unica"}
 
 
-def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
+def _mismo_rango(combinacion: str, limites: list, bandas: list[dict], balance: str) -> bool:
+    """Decide si las tres bandas deben compartir un unico rango de contraste.
+
+    Estirar cada banda a SU propio rango es realce de contraste, no color
+    verdadero: rompe la relacion entre bandas y mete un tinte. Con un rango
+    comun los colores salen como son... pero solo si las bandas ya estaban en
+    la misma escala. Si no lo estaban, el rango comun aplasta a la mas oscura
+    y el tinte aparece igual, solo que en el otro sentido: eso es exactamente
+    lo que dejaba azulada una escena cuyo rojo llegaba a 17.000 mientras el
+    verde llegaba a 29.000.
+
+    Cuando el equipo lo fija a mano se respeta sin mas. En automatico se usa el
+    rango comun solo si consta que las bandas son comparables:
+
+      - sus blancos ya caen a menos de un 25% unos de otros, o
+      - los valores son de un producto de reflectancia (<=1 en coma flotante,
+        <=12.000 en entero, que es la reflectancia por 10.000 con margen para
+        las nubes), donde compartir escala es parte de la definicion del dato.
+    """
+    if balance == "comun":
+        return True
+    if balance == "banda":
+        return False
+    if combinacion != "natural":
+        return False
+
+    altos = [alto for _, alto in limites]
+    if min(altos) >= 0.75 * max(altos):
+        return True
+
+    flotante = any((b.get("tipo") or "").lower().startswith("float") for b in bandas)
+    return max(altos) <= (1.5 if flotante else 12000)
+
+
+def _nodata(bandas: list[dict]) -> float | str | None:
+    """Valor de relleno, para que los bordes salgan transparentes.
+
+    Sin esto la escena se dibuja sobre un rectangulo negro que tapa lo que
+    haya debajo.
+    """
+    declarado = next((b.get("nodata") for b in bandas if b.get("nodata") is not None), None)
+    if declarado is not None:
+        return declarado
+
+    tipo = (bandas[0].get("tipo") or "").lower()
+    if tipo.startswith("float"):
+        # Los productos de reflectancia rellenan con NaN y casi nunca lo
+        # declaran. Comprobado en estos Sentinel-2: el pixel de esquina es NaN
+        # y el minimo real es 0.002, asi que el cero no aparece como dato
+        # valido y buscarlo no serviria de nada.
+        return "nan"
+    if tipo and tipo != "byte":
+        # Enteros de 16 bits: el relleno convencional es 0. En una ortofoto de
+        # 8 bits no se asume nada, porque ahi el 0 es negro legitimo.
+        return 0
+    return None
+
+
+def _limites(bandas: list[dict], elegidas: list[int]) -> list[tuple]:
+    """Percentiles 2/98 de las bandas elegidas, o vacio si falta alguno.
+
+    Un raster de 8 bits ya es visible: estirarlo solo alteraria los colores.
+    """
+    if not any(b.get("tipo", "").lower() not in ("byte", "") for b in bandas):
+        return []
+
+    indexadas = {b["indice"]: b for b in bandas}
+    limites = []
+    for indice in elegidas:
+        banda = indexadas.get(indice, {})
+        p2, p98 = banda.get("p2"), banda.get("p98")
+        if p2 is None or p98 is None or p98 <= p2:
+            return []
+        limites.append((p2, p98))
+    return limites
+
+
+def _plan_de_pintado(bandas: list[dict], combinacion: str,
+                     manual: dict | None = None, balance: str = "auto") -> dict:
     """Traduce bandas + combinacion a los parametros que entiende TiTiler."""
     if not bandas:
         return {}
 
-    papeles = _identificar_bandas(bandas)
+    papeles = _identificar_bandas(bandas, manual)
 
     if combinacion == "gris" or len(bandas) == 1:
         elegidas = [bandas[0]["indice"]]
@@ -258,54 +375,19 @@ def _plan_de_pintado(bandas: list[dict], combinacion: str) -> dict:
         elegidas = [papeles["rojo"], papeles["verde"], papeles["azul"]]
 
     plan: dict = {"bidx": elegidas}
-    indexadas = {b["indice"]: b for b in bandas}
 
-    # Un raster de 8 bits ya es visible: estirarlo solo alteraria los colores.
-    if any(b.get("tipo", "").lower() not in ("byte", "") for b in bandas):
-        limites = []
-        for indice in elegidas:
-            banda = indexadas.get(indice, {})
-            p2, p98 = banda.get("p2"), banda.get("p98")
-            if p2 is None or p98 is None or p98 <= p2:
-                limites = []
-                break
-            limites.append((p2, p98))
+    limites = _limites(bandas, elegidas)
+    if limites:
+        if len(limites) == 3 and _mismo_rango(combinacion, limites, bandas, balance):
+            bajo = min(p2 for p2, _ in limites)
+            alto = max(p98 for _, p98 in limites)
+            plan["rescale"] = [f"{bajo},{alto}"] * len(limites)
+        else:
+            plan["rescale"] = [f"{p2},{p98}" for p2, p98 in limites]
 
-        if limites:
-            if combinacion == "natural" and len(limites) == 3:
-                # Color real: el MISMO rango para las tres bandas.
-                #
-                # Estirar cada banda a su propio rango es realce de contraste,
-                # no color verdadero: rompe la relacion radiometrica entre
-                # bandas y mete un tinte. En Sentinel-2, por ejemplo, el verde
-                # va de 0.041 a 0.302 y el azul de 0.024 a 0.283; normalizarlos
-                # por separado desplaza el balance y la escena "parece" falso
-                # color. Con un rango comun los colores salen como son.
-                bajo = min(p2 for p2, _ in limites)
-                alto = max(p98 for _, p98 in limites)
-                plan["rescale"] = [f"{bajo},{alto}"] * len(limites)
-            else:
-                # En falso color la imagen ya es una construccion: ahi el
-                # estiramiento por banda es lo habitual y da mas contraste.
-                plan["rescale"] = [f"{p2},{p98}" for p2, p98 in limites]
-
-    # Transparencia de los bordes. Sin esto la escena se dibuja sobre un
-    # rectangulo negro que tapa lo que haya debajo.
-    declarado = next((b.get("nodata") for b in bandas if b.get("nodata") is not None), None)
-    tipo = (bandas[0].get("tipo") or "").lower()
-
-    if declarado is not None:
-        plan["nodata"] = declarado
-    elif tipo.startswith("float"):
-        # Los productos de reflectancia rellenan con NaN y casi nunca lo
-        # declaran. Comprobado en estos Sentinel-2: el pixel de esquina es NaN
-        # y el minimo real es 0.002, asi que el cero no aparece como dato
-        # valido y buscarlo no serviria de nada.
-        plan["nodata"] = "nan"
-    elif tipo and tipo != "byte":
-        # Enteros de 16 bits: el relleno convencional es 0. En una ortofoto de
-        # 8 bits no se asume nada, porque ahi el 0 es negro legitimo.
-        plan["nodata"] = 0
+    relleno = _nodata(bandas)
+    if relleno is not None:
+        plan["nodata"] = relleno
 
     return plan
 
@@ -364,23 +446,42 @@ async def procesar_raster(id_raster: int, origen: str, destino: str) -> None:
 async def listar():
     filas = await db.pool().fetch(
         "SELECT id, nombre, estado, mensaje, bounds, visible, opacidad, orden, "
-        "       autor, creado_en, combinacion, bandas "
+        "       autor, creado_en, combinacion, bandas, papeles, balance "
         "FROM rasters ORDER BY orden NULLS LAST, id"
     )
     salida = []
     for f in filas:
         dato = dict(f)
         bandas = json.loads(dato.pop("bandas") or "[]")
-        papeles = _identificar_bandas(bandas) if bandas else {}
+        manual = json.loads(dato["papeles"]) if dato["papeles"] else None
+        dato["balance"] = dato["balance"] or "auto"
+        papeles = _identificar_bandas(bandas, manual) if bandas else {}
+
         dato["num_bandas"] = len(bandas)
+        dato["papeles"] = papeles
+        # Lo que el archivo declara de cada banda, para que el panel de ajuste
+        # pueda decir "Banda 3 -- B4" en vez de solo "Banda 3".
+        dato["detalle_bandas"] = [
+            {"indice": b["indice"], "nombre": b.get("nombre") or "",
+             "interp": b.get("interp") or ""}
+            for b in bandas
+        ]
 
         # Huella del plan de pintado. Viaja en la URL de las teselas para que
         # cualquier cambio en como se pinta el raster invalide lo que el
         # navegador tenga guardado. Sin esto, arreglar el pintado no sirve de
         # nada durante las 24 horas que dura la cache.
-        plan = _plan_de_pintado(bandas, dato["combinacion"]) if bandas else {}
+        plan = (_plan_de_pintado(bandas, dato["combinacion"], manual, dato["balance"])
+                if bandas else {})
         dato["render"] = hashlib.sha1(
             json.dumps(plan, sort_keys=True, default=str).encode()).hexdigest()[:10]
+        # Que reparto de contraste quedo en efecto, para poder mostrarlo cuando
+        # esta en automatico.
+        escalas = plan.get("rescale") or []
+        dato["mismo_rango"] = len(escalas) == 3 and len(set(escalas)) == 1
+        # Una ortofoto de 8 bits ya es visible y no se estira: ahi el reparto
+        # de contraste no hace nada y el visor no debe ofrecerlo.
+        dato["estirable"] = bool(escalas)
         # El visor solo necesita saber que combinaciones ofrecer.
         dato["admite_infrarrojo"] = bool(papeles.get("nir")) and papeles.get("visible", True)
         dato["admite_swir"] = (bool(papeles.get("swir")) and bool(papeles.get("nir"))
@@ -466,6 +567,104 @@ async def editar(id_raster: int, parche: RasterParche):
     return dict(fila)
 
 
+@router.put("/{id_raster}/bandas")
+async def asignar_bandas(id_raster: int, entrada: BandasEntrada):
+    """Fija a mano que banda es cual, y como repartir el contraste.
+
+    Se guarda en el servidor, no en cada navegador: que banda es el rojo es un
+    hecho del archivo, no una preferencia. Si cada quien lo ajustara por su
+    cuenta, el equipo compararia capturas de la misma escena con colores
+    distintos.
+    """
+    if entrada.balance not in BALANCES:
+        raise HTTPException(status_code=400, detail=f"balance debe ser uno de {BALANCES}")
+
+    fila = await db.pool().fetchrow("SELECT bandas FROM rasters WHERE id=$1", id_raster)
+    if fila is None:
+        raise HTTPException(status_code=404, detail="Raster no encontrado")
+
+    papeles = None
+    if entrada.papeles:
+        total = len(json.loads(fila["bandas"] or "[]"))
+        limpio: dict[str, int] = {}
+        for papel, indice in entrada.papeles.items():
+            if papel not in PAPELES:
+                raise HTTPException(status_code=400, detail=f"Papel desconocido: {papel}")
+            if indice is None:
+                continue
+            if not 1 <= indice <= total:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"La banda {indice} no existe: el archivo tiene {total}")
+            limpio[papel] = indice
+        faltan = [p for p in ("rojo", "verde", "azul") if p not in limpio]
+        if faltan:
+            raise HTTPException(status_code=400,
+                                detail=f"Falta asignar: {', '.join(faltan)}")
+        papeles = limpio
+
+    await db.pool().execute(
+        "UPDATE rasters SET papeles=$2::jsonb, balance=$3 WHERE id=$1",
+        id_raster, json.dumps(papeles) if papeles else None, entrada.balance,
+    )
+    return {"ok": True, "papeles": papeles, "balance": entrada.balance}
+
+
+@router.get("/{id_raster}/vista.png")
+async def vista(id_raster: int, banda: int | None = None, c: str | None = None):
+    """Miniatura de la escena completa: de una banda suelta, o de la composicion.
+
+    Es la herramienta que hace contestable la pregunta "cual de estas cuatro es
+    el rojo". Vista en gris, el infrarrojo se reconoce de un vistazo porque la
+    vegetacion sale clara y el asfalto oscuro, y el azul porque tiene poco
+    contraste. Sin esto, asignar bandas a mano seria adivinar a ciegas.
+    """
+    fila = await db.pool().fetchrow(
+        "SELECT archivo, bandas, combinacion, papeles, balance "
+        "FROM rasters WHERE id=$1 AND estado='listo'", id_raster)
+    if fila is None or not fila["archivo"]:
+        raise HTTPException(status_code=404, detail="Raster no disponible")
+
+    bandas = json.loads(fila["bandas"] or "[]")
+    ruta = os.path.join(config.DIR_RASTERS, os.path.basename(fila["archivo"]))
+    parametros: dict = {"url": ruta, "max_size": 220}
+
+    if banda is not None:
+        if not any(b["indice"] == banda for b in bandas):
+            raise HTTPException(status_code=404, detail="Esa banda no existe")
+        parametros["bidx"] = [banda]
+        # Cada banda a su propio rango: aqui no se busca color fiel sino
+        # reconocer la banda, y para eso hace falta todo el contraste posible.
+        limites = _limites(bandas, [banda])
+        if limites:
+            parametros["rescale"] = [f"{limites[0][0]},{limites[0][1]}"]
+        relleno = _nodata(bandas)
+        if relleno is not None:
+            parametros["nodata"] = relleno
+    else:
+        manual = json.loads(fila["papeles"]) if fila["papeles"] else None
+        combinacion = c if c in COMBINACIONES else fila["combinacion"]
+        parametros.update(
+            _plan_de_pintado(bandas, combinacion, manual, fila["balance"] or "auto"))
+
+    try:
+        respuesta = await _cliente.get(
+            f"{config.TITILER_URL}/cog/preview.png", params=parametros, timeout=120.0)
+    except httpx.HTTPError as excepcion:
+        raise HTTPException(status_code=502, detail=f"TiTiler no responde: {excepcion}") from excepcion
+
+    if respuesta.status_code != 200:
+        raise HTTPException(status_code=502,
+                            detail=f"No se pudo pintar la vista: {respuesta.text[:200]}")
+
+    return Response(
+        content=respuesta.content,
+        media_type=respuesta.headers.get("content-type", "image/png"),
+        # Corta: se mira mientras se ajusta, y el ajuste cambia lo que muestra.
+        headers={"Cache-Control": "private, max-age=60"},
+    )
+
+
 @router.post("/{id_raster}/remedir")
 async def remedir(id_raster: int):
     """Vuelve a medir las bandas de un raster ya publicado.
@@ -504,15 +703,20 @@ async def borrar(id_raster: int):
 @router.get("/{id_raster}/tiles/{z}/{x}/{y}.png")
 async def tesela(id_raster: int, z: int, x: int, y: int, c: str | None = None):
     fila = await db.pool().fetchrow(
-        "SELECT archivo, bandas, combinacion FROM rasters WHERE id=$1 AND estado='listo'",
+        "SELECT archivo, bandas, combinacion, papeles, balance "
+        "FROM rasters WHERE id=$1 AND estado='listo'",
         id_raster)
     if fila is None or not fila["archivo"]:
         raise HTTPException(status_code=404, detail="Raster no disponible")
 
     combinacion = c if c in COMBINACIONES else fila["combinacion"]
     bandas = json.loads(fila["bandas"] or "[]")
+    manual = json.loads(fila["papeles"]) if fila["papeles"] else None
     ruta_local = os.path.join(config.DIR_RASTERS, os.path.basename(fila["archivo"]))
-    parametros: dict = {"url": ruta_local, **_plan_de_pintado(bandas, combinacion)}
+    parametros: dict = {
+        "url": ruta_local,
+        **_plan_de_pintado(bandas, combinacion, manual, fila["balance"] or "auto"),
+    }
 
     try:
         plantilla = await _resolver_ruta_teselas()

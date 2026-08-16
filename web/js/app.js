@@ -11,6 +11,7 @@ import * as ficha from './ficha.js';
 import * as subidas from './subidas.js';
 import * as comparar from './comparar.js';
 import * as simbologia from './simbologia.js';
+import * as bandas from './bandas.js';
 import { PRIORITARIAS, RESTO, COLOMBIA } from './ciudades.js';
 
 // ---------------------------------------------------------------------------
@@ -227,6 +228,7 @@ $('salir').onclick = async () => {
 // Simbologia y leyenda
 // ---------------------------------------------------------------------------
 $('sim-cerrar').onclick = () => simbologia.cerrar();
+$('bandas-cerrar').onclick = () => bandas.cerrar();
 
 // La leyenda se pliega y se recuerda plegada: en un portatil de 13" sobre el
 // terreno, cada centimetro de mapa cuenta.
@@ -241,7 +243,8 @@ $('leyenda-plegar').onclick = () => {
 
 document.addEventListener('keydown', (evento) => {
   if (evento.key !== 'Escape') return;
-  if (simbologia.estaAbierto()) simbologia.cerrar();
+  if (bandas.estaAbierto()) bandas.cerrar();
+  else if (simbologia.estaAbierto()) simbologia.cerrar();
   else if ($('telon-comparar').classList.contains('visible')) {
     $('telon-comparar').classList.remove('visible');
   } else if (dibujo.hayModal()) dibujo.cerrarModal();

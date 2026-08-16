@@ -9,6 +9,7 @@
 import { api, avisar, escapar, $ } from './util.js';
 import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster } from './mapa.js';
 import * as simbologia from './simbologia.js';
+import * as bandas from './bandas.js';
 
 /** Lista completa, del fondo al frente: primero imagenes, luego dibujo. */
 export let items = [];
@@ -212,7 +213,10 @@ function pintarFila(item, indice, total, grupoApagado) {
         ${estado ? `<span class="estado ${estado[1]}">${estado[0]}</span>`
           : item.esRaster && item.tiene_visible === false
             ? `<span class="estado aviso" title="Este archivo no trae bandas visibles (rojo, verde, azul). Solo tiene borde rojo, infrarrojo y SWIR, así que el color real no se puede reconstruir.">sin color real</span>`
-            : `<span class="conteo">${item.esRaster ? 'ráster' : item.total}</span>`}
+            : item.esRaster && item.papeles?.origen === 'supuesto'
+              ? `<button class="estado aviso" data-accion="bandas"
+                  title="El archivo no dice qué banda es cuál, así que el orden está supuesto. Si el color se ve raro, revísalo aquí.">bandas?</button>`
+              : `<span class="conteo">${item.esRaster ? 'ráster' : item.total}</span>`}
         <button class="icono" data-accion="subir"    ${indice === 0 ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
         <button class="icono" data-accion="bajar"    ${indice === total - 1 ? 'disabled' : ''}
@@ -235,6 +239,9 @@ function pintarFila(item, indice, total, grupoApagado) {
             ${item.admite_swir ? `<option value="swir" ${item.combinacion === 'swir' ? 'selected' : ''}>SWIR (suelo y humedad)</option>` : ''}
             <option value="gris" ${item.combinacion === 'gris' ? 'selected' : ''}>Una banda en gris</option>
           </select>
+          <button data-accion="bandas" style="width:100%;margin-top:8px">
+            Ajustar imagen (bandas y color)…
+          </button>
           ` : '') : `
           <label>Color${entradas.length ? ' de base' : ''}</label>
           <input type="color" value="${escapar(item.color)}" data-accion="color">
@@ -317,6 +324,17 @@ async function manejar(accion, item, clave) {
         aplicarEstilos([efectivo(item)]);
         simbologia.pintarLeyenda(items.map(efectivo));
         pintar();
+      });
+      break;
+
+    case 'bandas':
+      // Cambiar la asignacion cambia la URL de las teselas: hay que rehacer la
+      // fuente y devolver el item ya refrescado, porque cargar() crea objetos
+      // nuevos y el que tiene el panel abierto queda obsoleto.
+      bandas.abrir(item, async () => {
+        olvidarRaster(item.id);
+        await cargar();
+        return items.find((i) => i.esRaster && i.id === item.id);
       });
       break;
 
