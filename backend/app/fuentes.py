@@ -107,6 +107,7 @@ GRADO_EMS = {
 
 DRP = "https://services.arcgis.com/vC1CdlKWEAtuT38d/arcgis/rest/services/"
 IGAC_ORTO = "https://mapas2.igac.gov.co/image2/rest/services/orto/"
+INVIAS = "https://hermes.invias.gov.co/arcgis/rest/services/OpenData/ServiciosOpenData/FeatureServer"
 
 
 def _orto(ciudad: str, ruta: str, clave: str) -> Fuente:
@@ -497,19 +498,47 @@ CATALOGO: tuple[Fuente, ...] = (
         nota="GDACS recalcula alertas e impacto cada pocas horas.",
     ),
 
-    # -- No integradas ------------------------------------------------------
+    # -- INVIAS --------------------------------------------------------------
+    # El endpoint del inventario (hermes2 / Sistema_informacion_vial) responde
+    # "Token Required". Este otro, abierto, aparecio consultando el indice del
+    # portal DRP que el propio equipo incluyo en la lista.
     Fuente(
         clave="invias-red-vial",
-        nombre="Estado de la red vial",
-        organizacion="INVIAS",
+        nombre="Red vial nacional",
+        organizacion="INVIAS (OpenData)",
         tema="respuesta",
-        tipo="enlace",
-        url="https://hermes2.invias.gov.co/server/rest/services/Sistema_informacion_vial/"
-            "Sistema_de_Informacion_Vial/FeatureServer",
-        naturaleza="dinamica",
-        motivo="El servidor de INVIAS responde «Token Required»: el servicio no es público. "
-               "Hay que pedirle a INVIAS un token o una capa abierta.",
+        tipo="arcgis",
+        url=INVIAS + "/0",
+        campos=("codigo_via", "tramo", "sector", "ruta", "territorial",
+                "administrador", "concesion", "observacion_invias", "estado",
+                "fecha_actualiz"),
+        titulo="tramo",
+        color="#f4a261",
+        minutos=720,
+        naturaleza="semi-estatica",
+        tolerancia=0.0005,
+        nota="Es el INVENTARIO de la red, no su estado tras el sismo: el campo «estado» es "
+             "de uso interno de INVIAS y viene vacío en tres de cada cuatro tramos. "
+             "Generalizada a ~55 m: sin simplificar son 118 MB.",
     ),
+    Fuente(
+        clave="invias-puentes",
+        nombre="Puentes de la red nacional",
+        organizacion="INVIAS (OpenData)",
+        tema="respuesta",
+        tipo="arcgis",
+        url=INVIAS + "/1",
+        campos=("nombre", "carretera", "vias", "pr_o", "l_total", "luces",
+                "luz_max", "material", "construc", "reconstr", "fecha_inspe"),
+        titulo="nombre",
+        color="#ffbe0b",
+        minutos=720,
+        naturaleza="semi-estatica",
+        nota="Inventario nacional con la fecha de última inspección de cada puente. Sirve "
+             "para priorizar cuáles revisar tras el sismo; no dice si están dañados.",
+    ),
+
+    # -- No integradas ------------------------------------------------------
     Fuente(
         clave="igac-basemap-ott",
         nombre="Basemap OTT (teselas vectoriales)",
