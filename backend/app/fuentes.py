@@ -639,7 +639,7 @@ PRODUCTOS: tuple[Producto, ...] = (
     ),
     Producto(
         clave="hdx-footprints-hdx",
-        nombre="Huellas de edificación validadas + predicción (GeoPackage)",
+        nombre="Edificaciones con daño estimado · Google (Cali)",
         organizacion="HDX / Microsoft AI for Good Lab",
         url="https://data.humdata.org/dataset/98e2bb4b-e2b9-4178-bf47-826883ca08cc/resource/"
             "d146b2a4-6794-4792-a0df-31841312b85c/download/"
@@ -647,13 +647,13 @@ PRODUCTOS: tuple[Producto, ...] = (
         tipo="huellas",
         mb=73.3,
         filtro=FILTRO_HUELLAS,
-        nota="320.791 huellas de edificación (Google), de las que el modelo marca 1.047 con "
-             "algún indicio de daño. Se traen solo esas: el archivo entero dejaría el visor "
-             "lento para todo el equipo. Trae damage_pct_0m para clasificar por color.",
+        nota="De las 320.791 huellas del archivo se traen las 1.054 que el modelo marca con "
+             "algún indicio; el resto dejaría el visor lento para todo el equipo. Clasificar "
+             "por damage_pct_0m; unas pocas vienen marcadas sin porcentaje.",
     ),
     Producto(
         clave="hdx-footprints-overture",
-        nombre="Huellas Overture + predicción (GeoPackage)",
+        nombre="Edificaciones con daño estimado · Overture (Cali)",
         organizacion="HDX / Microsoft AI for Good Lab",
         url="https://data.humdata.org/dataset/98e2bb4b-e2b9-4178-bf47-826883ca08cc/resource/"
             "a00eebfb-0590-456a-b46d-4633122330d9/download/"
@@ -661,7 +661,7 @@ PRODUCTOS: tuple[Producto, ...] = (
         tipo="huellas",
         mb=27.1,
         filtro=FILTRO_HUELLAS,
-        nota="97.351 huellas (Overture), de las que el modelo marca 570. Mismo criterio que "
+        nota="De las 97.351 huellas de Overture se traen las 570 marcadas. Mismo criterio que "
              "el anterior; sirve para contrastar las dos fuentes de huellas entre sí.",
     ),
 )
