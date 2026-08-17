@@ -612,6 +612,18 @@ PRODUCTOS: tuple[Producto, ...] = (
              "Entra como imagen y se puede comparar con las escenas propias.",
     ),
     Producto(
+        clave="hdx-area-valida",
+        nombre="Área válida de la predicción de IA (Cali)",
+        organizacion="HDX / Microsoft AI for Good Lab",
+        url="https://data.humdata.org/dataset/98e2bb4b-e2b9-4178-bf47-826883ca08cc/resource/"
+            "2e917265-3d4e-4660-8256-51c77c435063/download/"
+            "airbus_8-10_cali_valid_area_mask.geojson",
+        tipo="geojson",
+        mb=0.001,
+        nota="Dónde vale la predicción del modelo. Fuera de este polígono el ráster de "
+             "daño estimado no significa nada, así que conviene tenerlo encima.",
+    ),
+    Producto(
         clave="hdx-footprints-hdx",
         nombre="Huellas de edificación validadas + predicción (GeoPackage)",
         organizacion="HDX / Microsoft AI for Good Lab",

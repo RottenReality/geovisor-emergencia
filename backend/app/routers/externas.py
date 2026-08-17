@@ -608,6 +608,11 @@ async def importar_producto(clave: str, sesion: dict = Depends(requiere_sesion))
 
     if producto.tipo == "raster":
         return await _importar_raster(producto, respuesta.content, sesion)
+    if producto.tipo == "geojson":
+        capa_id, insertados, _ = await insertar_geojson(
+            respuesta.json(), producto.nombre[:120], "#457b9d", sesion.get("autor"))
+        return {"capas": [{"capa_id": capa_id, "nombre": producto.nombre,
+                           "insertados": insertados}], "vacias": []}
     return await _importar_zip_ems(producto, respuesta.content, sesion)
 
 
