@@ -1,15 +1,22 @@
-/* Panel de capas, en dos grupos: imagenes debajo, dibujo encima.
+/* Panel de capas, en tres grupos: imagenes debajo, fuentes externas en medio,
+ * dibujo encima.
  *
- * Los vectores van SIEMPRE por encima de las imagenes, porque se dibuja sobre
- * la ortofoto y nunca al reves. Fijarlo asi no quita libertad: elimina la
- * pregunta de si tal raster va antes o despues de tal capa de puntos, y deja
- * el reordenamiento donde de verdad importa, que es dentro de cada grupo.
+ * Los vectores propios van SIEMPRE por encima de las imagenes, porque se
+ * dibuja sobre la ortofoto y nunca al reves. Fijarlo asi no quita libertad:
+ * elimina la pregunta de si tal raster va antes o despues de tal capa de
+ * puntos, y deja el reordenamiento donde de verdad importa, que es dentro de
+ * cada grupo.
+ *
+ * Las fuentes externas quedan en medio y el grupo solo aparece cuando hay
+ * alguna encendida: el catalogo son treinta y dos servicios y el panel no es
+ * sitio para un indice.
  */
 
 import { api, avisar, escapar, $ } from './util.js';
 import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster } from './mapa.js';
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
+import * as externas from './externas.js';
 
 /** Lista completa, del fondo al frente: primero imagenes, luego dibujo. */
 export let items = [];
@@ -18,11 +25,14 @@ let expandida = null;
 let sondeo = null;
 
 const GRUPOS = [
-  { clave: 'raster', titulo: 'Imágenes', vacio: 'Sin imágenes cargadas.' },
-  { clave: 'vector', titulo: 'Dibujo',   vacio: 'Sin capas de dibujo.' },
+  { clave: 'raster',  titulo: 'Imágenes', vacio: 'Sin imágenes cargadas.' },
+  // Sin texto de vacio: cuando no hay ninguna encendida el grupo no se pinta.
+  { clave: 'externa', titulo: 'Fuentes externas', vacio: '' },
+  { clave: 'vector',  titulo: 'Dibujo',   vacio: 'Sin capas de dibujo.' },
 ];
 
-const grupoDe = (item) => (item.esRaster ? 'raster' : 'vector');
+const grupoDe = (item) =>
+  (item.esExterna ? 'externa' : item.esRaster ? 'raster' : 'vector');
 
 /** Grupos apagados enteros. Es una vista local, no se guarda en el servidor. */
 const gruposOcultos = new Set();
@@ -47,12 +57,13 @@ export async function cargar() {
   const porOrden = (a, b) => (a.orden ?? 0) - (b.orden ?? 0);
   items = [
     ...rasters.map((r) => ({ ...r, esRaster: true })).sort(porOrden),
+    ...externas.items(),
     ...capas.map((c) => ({ ...c, esRaster: false })).sort(porOrden),
   ];
 
   pintar();
   sincronizarCapas(
-    items.filter((i) => !i.esRaster || i.estado === 'listo').map(efectivo));
+    items.filter((i) => i.esExterna || !i.esRaster || i.estado === 'listo').map(efectivo));
   simbologia.reaplicarFiltros(items);
   simbologia.pintarLeyenda(items.map(efectivo));
   vigilarConversiones();
@@ -123,6 +134,9 @@ function pintar() {
   // dibujo encima de las imagenes.
   for (const grupo of [...GRUPOS].reverse()) {
     const delGrupo = items.filter((i) => grupoDe(i) === grupo.clave);
+    // Un grupo sin texto de vacio desaparece cuando no tiene nada: es el caso
+    // de las fuentes externas, que la mayor parte del tiempo no estorban.
+    if (!delGrupo.length && !grupo.vacio) continue;
     const plegado = plegados.has(grupo.clave);
     const apagado = gruposOcultos.has(grupo.clave);
     const encendidas = apagado ? 0 : delGrupo.filter((i) => i.visible).length;
@@ -161,7 +175,9 @@ function pintar() {
       // Dentro del grupo tambien se pinta de frente a fondo: arriba en la
       // lista = encima en el mapa, como en QGIS o ArcGIS.
       [...delGrupo].reverse().forEach((item, indice, arreglo) =>
-        cuerpo.appendChild(pintarFila(item, indice, arreglo.length, apagado)));
+        cuerpo.appendChild(item.esExterna
+          ? pintarFilaExterna(item, indice, arreglo.length, apagado)
+          : pintarFila(item, indice, arreglo.length, apagado)));
     }
     lista.appendChild(cuerpo);
   }
@@ -171,7 +187,7 @@ function pintar() {
  *  franjas como clases quepan: asi la lista dice de un vistazo que capa esta
  *  clasificada y con que colores, sin tener que abrirla. */
 function muestraDeColor(item, entradas) {
-  if (item.esRaster) {
+  if (item.esRaster || item.esImagen) {
     return '<span class="punto-color" style="background:transparent;border:1px solid var(--papel-2)"></span>';
   }
   if (!entradas.length) {
@@ -303,6 +319,154 @@ function pintarFila(item, indice, total, grupoApagado) {
   });
 
   return fila;
+}
+
+/**
+ * Fila de una fuente externa.
+ *
+ * Se parece a la de una capa propia pero no es la misma: no hay color a mano
+ * (lo trae el catalogo), no hay renombrar ni eliminar -no es nuestro dato-, y
+ * en su lugar aparece lo unico que si es una decision del equipo: congelar una
+ * copia fechada.
+ */
+function pintarFilaExterna(item, indice, total, grupoApagado) {
+  const clave = `x${item.id}`;
+  const fila = document.createElement('div');
+  fila.className = 'capa-fila externa' + (expandida === clave ? ' abierta' : '')
+                                       + (grupoApagado ? ' atenuada' : '');
+  const abierta = expandida === clave;
+  fila.classList.toggle('encendida', !!item.visible);
+
+  const entradas = simbologia.leyendaDe(item);
+  const conteo = item.esImagen ? 'imagen'
+    : item.total != null ? item.total.toLocaleString('es-CO') : '…';
+
+  fila.innerHTML = `
+      <div class="capa-cabecera">
+        <button class="ojo ${item.visible ? 'activo' : ''}" data-accion="ver"
+                title="${item.visible ? 'Ocultar' : 'Mostrar'} esta capa"
+                aria-pressed="${!!item.visible}"
+                aria-label="${item.visible ? 'Ocultar' : 'Mostrar'} ${escapar(item.nombre)}">
+          ${item.visible ? '&#9673;' : '&#9678;'}
+        </button>
+        ${muestraDeColor(item, entradas)}
+        <button class="nombre" data-accion="expandir"
+                title="${escapar(item.fuente.organizacion)} — opciones">
+          ${escapar(item.nombre)}
+        </button>
+        <span class="conteo">${escapar(conteo)}</span>
+        <button class="icono" data-accion="subir" ${indice === 0 ? 'disabled' : ''}
+                title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
+        <button class="icono" data-accion="bajar" ${indice === total - 1 ? 'disabled' : ''}
+                title="Enviar atrás" aria-label="Enviar atrás">&darr;</button>
+        <button class="icono chevron ${abierta ? 'abierto' : ''}" data-accion="expandir"
+                title="${abierta ? 'Cerrar opciones' : 'Abrir opciones'}"
+                aria-expanded="${abierta}" aria-label="Opciones">&#9662;</button>
+      </div>
+      <div class="capa-detalle">
+        <p class="nota"><strong>${escapar(item.fuente.organizacion)}</strong>${
+          item.fuente.nota ? ` · ${escapar(item.fuente.nota)}` : ''}</p>
+        <label>Opacidad <output>${Math.round((item.opacidad ?? 1) * 100)}%</output></label>
+        <input type="range" min="0" max="100" value="${Math.round((item.opacidad ?? 1) * 100)}"
+               data-accion="opacidad">
+        ${entradas.length ? `
+          <div class="leyenda-mini">
+            ${entradas.map((f) => `
+              <span class="par-leyenda" title="${escapar(f.etiqueta)}">
+                <span class="muestra" style="background:${escapar(f.color)}"></span>
+                ${escapar(f.etiqueta)}
+              </span>`).join('')}
+          </div>` : ''}
+        <div class="fila" style="margin-top:8px">
+          <button data-accion="encuadrar">Ir a la capa</button>
+          <a class="boton-enlace" href="${escapar(item.fuente.url)}"
+             target="_blank" rel="noopener">Ver el servicio</a>
+        </div>
+        ${item.esImagen ? '' : `
+          <button data-accion="copiar" style="width:100%;margin-top:8px">
+            Guardar copia fechada como capa
+          </button>`}
+        <button data-accion="quitar" class="tenue" style="margin-top:8px">Quitar del panel</button>
+        <button data-accion="expandir" class="tenue cerrar-detalle">Cerrar opciones</button>
+      </div>`;
+
+  fila.querySelectorAll('[data-accion]').forEach((control) => {
+    const accion = control.dataset.accion;
+    if (accion === 'opacidad') {
+      control.oninput = (e) => {
+        item.opacidad = Number(e.target.value) / 100;
+        fila.querySelector('output').textContent = `${e.target.value}%`;
+        aplicarEstilos([efectivo(item)]);
+      };
+      control.onchange = (e) => externas.fijar(item.id, { opacidad: Number(e.target.value) / 100 });
+    } else {
+      control.onclick = () => manejarExterna(accion, item, clave);
+    }
+  });
+
+  return fila;
+}
+
+async function manejarExterna(accion, item, clave) {
+  switch (accion) {
+    case 'ver':
+      item.visible = !item.visible;
+      externas.fijar(item.id, { visible: item.visible });
+      aplicarEstilos([efectivo(item)]);
+      simbologia.pintarLeyenda(items.map(efectivo));
+      pintar();
+      break;
+
+    case 'expandir':
+      expandida = expandida === clave ? null : clave;
+      pintar();
+      break;
+
+    case 'subir':
+    case 'bajar':
+      await externas.mover(item.id, accion === 'subir' ? 1 : -1);
+      break;
+
+    case 'encuadrar':
+      await irAExterna(item);
+      break;
+
+    case 'copiar':
+      await externas.copiar(item);
+      break;
+
+    case 'quitar':
+      expandida = null;
+      await externas.apagar(item.id);
+      avisar(`"${item.nombre}" quitada del panel.`);
+      break;
+  }
+}
+
+/** Encuadra una fuente externa.
+ *
+ *  Las ortoimagenes ya traen su extension del catalogo. Los vectores no, asi
+ *  que se calcula del propio GeoJSON: el navegador acaba de descargarlo para
+ *  pintarlo, de modo que sale de su cache y no cuesta una peticion nueva. */
+async function irAExterna(item) {
+  if (item.bounds) { encuadrar(item.bounds); return; }
+  try {
+    const datos = await api(`/api/externas/${item.id}.geojson`);
+    let x1 = 180, y1 = 90, x2 = -180, y2 = -90;
+    const mirar = (coordenadas) => {
+      if (typeof coordenadas[0] === 'number') {
+        x1 = Math.min(x1, coordenadas[0]); x2 = Math.max(x2, coordenadas[0]);
+        y1 = Math.min(y1, coordenadas[1]); y2 = Math.max(y2, coordenadas[1]);
+        return;
+      }
+      coordenadas.forEach(mirar);
+    };
+    for (const elemento of datos.features) {
+      if (elemento.geometry?.coordinates) mirar(elemento.geometry.coordinates);
+    }
+    if (x1 <= x2) encuadrar([x1, y1, x2, y2]);
+    else avisar('Esa fuente no devolvió elementos con posición.');
+  } catch (error) { avisar(error.message, true); }
 }
 
 async function manejar(accion, item, clave) {

@@ -166,7 +166,8 @@ button.peligro {
 }
 button.peligro:hover { background: rgba(255, 77, 61, .16); border-color: var(--alerta); }
 
-input[type="text"], input[type="password"], input[type="file"], select {
+input[type="text"], input[type="password"], input[type="file"],
+input[type="search"], select {
   width: 100%;
   font-family: var(--sans);
   font-size: 13px;
@@ -832,6 +833,132 @@ table.atributos code {
   border-radius: 5px;
   padding: 8px 9px;
 }
+
+/* --- Catalogo de fuentes externas ---------------------------------------- */
+/* Treinta y dos servicios no caben en el panel lateral sin volverlo inservible.
+   Viven aqui, se eligen, y solo lo elegido baja al panel. */
+.modal.alto { max-width: 560px; }
+
+#externas-cuerpo .evento:not(:empty) {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--foco);
+  background: rgba(255, 209, 102, .08);
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+#externas-cuerpo .evento p { margin: 0; color: var(--papel-2); }
+#externas-cuerpo .evento strong { color: var(--papel); }
+
+#externas-buscar { margin-bottom: 4px; }
+
+#externas-cuerpo .tema { margin-top: 18px; }
+#externas-cuerpo .tema h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--papel-2);
+}
+#externas-cuerpo .tema > .nota { margin: 3px 0 8px; }
+
+.fuente {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 8px 9px;
+  margin-bottom: 5px;
+  border: 1px solid var(--borde);
+  border-left: 2px solid var(--borde);
+  border-radius: 5px;
+  background: var(--tinta-2);
+}
+.fuente.activa { border-left-color: var(--ok); }
+.fuente.sin-integrar { opacity: .6; background: transparent; }
+.fuente .casilla { margin: 0; font-size: 13px; }
+.fuente .titulo {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--papel);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.marca-org {
+  font-size: 10.5px;
+  color: var(--papel-2);
+  white-space: nowrap;
+}
+/* La nota y el motivo ocupan el ancho entero, debajo del titulo. */
+.fuente .nota, .fuente button, .fuente .enlace { grid-column: 1 / -1; }
+.fuente button { margin-top: 7px; }
+.fuente .enlace, .boton-enlace {
+  display: block;
+  margin-top: 7px;
+  padding: 8px 10px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--papel-2);
+  text-decoration: none;
+  border: 1px solid var(--borde);
+  border-radius: 5px;
+}
+.fuente .enlace:hover, .boton-enlace:hover { color: var(--papel); background: var(--tinta-3); }
+.boton-enlace { margin-top: 0; }
+
+/* La fila de una fuente externa se distingue de las propias por la izquierda:
+   lo de fuera no se edita ni se borra, y conviene no confundirlo con lo que
+   el equipo levanto en campo. */
+.capa-fila.externa { border-left-style: dashed; }
+
+/* --- Globo de un elemento externo ---------------------------------------- */
+/* MapLibre trae un globo blanco por defecto, que en esta interfaz oscura
+   deslumbra justo encima del dato. */
+.maplibregl-popup-content {
+  background: var(--tinta);
+  color: var(--papel);
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .5);
+}
+.maplibregl-popup-tip { display: none; }
+.maplibregl-popup-close-button {
+  color: var(--papel-2);
+  font-size: 18px;
+  padding: 0 6px;
+  background: transparent;
+  border: 0;
+}
+.maplibregl-popup-close-button:hover { color: var(--papel); background: transparent; }
+
+.globo { max-height: 300px; overflow-y: auto; }
+.globo h3 { margin: 0 4px 2px 0; font-size: 13.5px; line-height: 1.35; }
+.globo .origen {
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  color: var(--papel-2);
+}
+.globo table { width: 100%; border-collapse: collapse; }
+.globo th, .globo td {
+  text-align: left;
+  vertical-align: top;
+  padding: 3px 0;
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  border-top: 1px solid var(--tinta-3);
+}
+.globo th {
+  width: 40%;
+  padding-right: 10px;
+  color: var(--papel-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  word-break: break-word;
+}
+.globo a { color: var(--foco); }
 
 /* --- Modal -------------------------------------------------------------- */
 .telon {

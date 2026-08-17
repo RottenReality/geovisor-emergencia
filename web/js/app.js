@@ -2,7 +2,7 @@
 
 import { api, avisar, escapar, $ } from './util.js';
 import {
-  mapa, inicializarFuentes, capasConsultables, refrescarDatos,
+  mapa, inicializarFuentes, capasConsultables, refrescarDatos, refrescarExternas,
   cambiarBase, baseGuardada, irA, seguirCursor,
 } from './mapa.js';
 import * as capas from './capas.js';
@@ -12,6 +12,7 @@ import * as subidas from './subidas.js';
 import * as comparar from './comparar.js';
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
+import * as externas from './externas.js';
 import { PRIORITARIAS, RESTO, COLOMBIA } from './ciudades.js';
 
 // ---------------------------------------------------------------------------
@@ -27,17 +28,23 @@ mapa.on('load', async () => {
   dibujo.alGuardarElemento(() => capas.cargar());
   ficha.alBorrarElemento(() => capas.cargar());
 
+  // Antes de la primera carga: si este navegador venia con fuentes externas
+  // encendidas, tienen que estar en la lista desde el primer pintado.
+  await externas.inicializar(() => capas.cargar());
   await capas.cargar();
 });
 
 // ---------------------------------------------------------------------------
 // Seleccion de elementos
 // ---------------------------------------------------------------------------
+/** Todo lo que responde al clic: lo dibujado por el equipo y lo externo. */
+const consultables = () => [...capasConsultables(), ...externas.consultables()];
+
 mapa.on('click', (evento) => {
   if (dibujo.dibujando()) return;
 
-  const consultables = capasConsultables();
-  if (!consultables.length) return;
+  const capasVivas = consultables();
+  if (!capasVivas.length) return;
 
   // Un margen de 4 px hace que tocar una linea o un punto fino funcione con
   // el dedo, no solo con raton fino.
@@ -45,17 +52,27 @@ mapa.on('click', (evento) => {
     [evento.point.x - 4, evento.point.y - 4],
     [evento.point.x + 4, evento.point.y + 4],
   ];
-  const encontrados = mapa.queryRenderedFeatures(caja, { layers: consultables });
-  if (!encontrados.length) { ficha.cerrar(); return; }
+  // Se pregunta por todo de una vez para que gane lo que este dibujado
+  // encima. Consultando primero lo propio, un poligono grande del equipo
+  // taparia el punto externo que cae justo sobre el.
+  const encontrados = mapa.queryRenderedFeatures(caja, { layers: capasVivas });
+  if (!encontrados.length) { ficha.cerrar(); externas.cerrarGlobo(); return; }
 
-  ficha.abrir(encontrados[0].properties.id);
+  const elegido = encontrados[0];
+  if (elegido.layer.id.startsWith('ext-')) {
+    ficha.cerrar();
+    externas.mostrar(elegido, evento.lngLat);
+  } else {
+    externas.cerrarGlobo();
+    ficha.abrir(elegido.properties.id);
+  }
 });
 
 mapa.on('mousemove', (evento) => {
   if (dibujo.dibujando()) return;
-  const consultables = capasConsultables();
-  if (!consultables.length) return;
-  const encima = mapa.queryRenderedFeatures(evento.point, { layers: consultables }).length > 0;
+  const capasVivas = consultables();
+  if (!capasVivas.length) return;
+  const encima = mapa.queryRenderedFeatures(evento.point, { layers: capasVivas }).length > 0;
   mapa.getCanvas().style.cursor = encima ? 'pointer' : '';
 });
 
@@ -216,6 +233,7 @@ $('alternar').onclick = () => $('rail').classList.toggle('oculto');
 $('refrescar').onclick = async () => {
   refrescarDatos();
   await capas.cargar();
+  refrescarExternas();
   avisar('Datos actualizados.');
 };
 
@@ -245,12 +263,13 @@ document.addEventListener('keydown', (evento) => {
   if (evento.key !== 'Escape') return;
   if (bandas.estaAbierto()) bandas.cerrar();
   else if (simbologia.estaAbierto()) simbologia.cerrar();
+  else if (externas.estaAbierto()) externas.cerrar();
   else if ($('telon-comparar').classList.contains('visible')) {
     $('telon-comparar').classList.remove('visible');
   } else if (dibujo.hayModal()) dibujo.cerrarModal();
   else if (dibujo.dibujando()) dibujo.activar(null);
   else if (comparar.estaActiva()) comparar.desactivar();
-  else ficha.cerrar();
+  else { ficha.cerrar(); externas.cerrarGlobo(); }
 });
 
 // Comprobacion de sesion antes de mostrar nada.

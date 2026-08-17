@@ -74,7 +74,10 @@
 
     <section class="seccion">
       <h2>Capas <span class="pista">arriba = al frente</span></h2>
-      <button id="comparar" class="tenue" style="margin-bottom:8px">Comparar capas</button>
+      <div class="fila" style="margin-bottom:8px">
+        <button id="comparar" class="tenue">Comparar capas</button>
+        <button id="externas" class="tenue">Fuentes externas</button>
+      </div>
       <div id="lista-capas"></div>
       <div class="crear-capa">
         <input type="text" id="nueva-capa-nombre" placeholder="Nombre de la capa nueva">
@@ -213,6 +216,17 @@
     <div id="simbologia-cuerpo"></div>
     <div class="fila" style="margin-top:16px">
       <button id="sim-cerrar" class="principal">Listo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Catálogo de fuentes externas -->
+<div class="telon" id="telon-externas">
+  <div class="modal ancho alto">
+    <h2>Fuentes externas</h2>
+    <div id="externas-cuerpo"></div>
+    <div class="fila" style="margin-top:16px">
+      <button id="externas-cerrar" class="principal">Listo</button>
     </div>
   </div>
 </div>

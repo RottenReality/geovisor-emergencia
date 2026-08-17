@@ -76,20 +76,23 @@ let montadas = [];
  * en el estilo, recolorear es instantaneo y no cuesta ni un byte de red.
  *
  * Con simbologia tematica devuelve una expresion que lee `valor`, el unico
- * atributo que el servidor mete en la tesela para esta capa.
+ * atributo que el servidor mete en la tesela para esta capa. Las fuentes
+ * externas no pasan por la tesela sino que llegan como GeoJSON completo, asi
+ * que ahi el atributo se lee por su nombre real.
  */
 export function expresionColor(item) {
   const base = item.color || '#e63946';
   const estilo = item.estilo;
   if (!estilo || !estilo.campo) return base;
+  const atributo = item.esExterna ? estilo.campo : 'valor';
 
   if (estilo.modo === 'categorias') {
     const pares = Object.entries(estilo.colores || {});
     if (!pares.length) return base;
     // 'has' descarta los elementos sin ese atributo: sin el, `to-string` los
     // convertiria en cadena vacia y se pintarian todos como una categoria mas.
-    return ['case', ['has', 'valor'],
-      ['match', ['to-string', ['get', 'valor']],
+    return ['case', ['has', atributo],
+      ['match', ['to-string', ['get', atributo]],
         ...pares.flatMap(([valor, color]) => [valor, color]), base],
       base];
   }
@@ -98,9 +101,9 @@ export function expresionColor(item) {
     const cortes = estilo.cortes || [];
     const colores = estilo.colores || [];
     if (cortes.length < 2 || colores.length !== cortes.length - 1) return base;
-    const paso = ['step', ['to-number', ['get', 'valor'], 0], colores[0]];
+    const paso = ['step', ['to-number', ['get', atributo], 0], colores[0]];
     for (let i = 1; i < colores.length; i++) paso.push(cortes[i], colores[i]);
-    return ['case', ['has', 'valor'], paso, base];
+    return ['case', ['has', atributo], paso, base];
   }
 
   return base;
@@ -187,6 +190,69 @@ export function inicializarFuentes() {
 const ENCIMA = ['seleccion-relleno', 'seleccion-borde', 'seleccion-punto',
                 'dibujo-relleno', 'dibujo-linea', 'dibujo-vertice'];
 
+/** Prefijo de las capas de MapLibre que corresponden a un item del panel. */
+const claveDe = (item) =>
+  item.esExterna ? `ext-${item.id}` : item.esRaster ? `raster-${item.id}` : `capa-${item.id}`;
+
+/** Los rasters propios y las ortoimagenes externas se pintan igual: una sola
+ *  capa de tipo raster, con opacidad, y sin partes de relleno ni borde. */
+const esImagen = (item) => Boolean(item.esRaster || item.esImagen);
+
+const PARTES_VECTOR = ['-relleno', '-borde', '-punto'];
+
+/**
+ * Monta una fuente externa.
+ *
+ * Las ortoimagenes salen por /api/externas/.../tiles: el navegador nunca habla
+ * con el IGAC directamente. Los vectores llegan como un GeoJSON completo -no
+ * como teselas- porque ninguna de estas fuentes pasa de unos pocos miles de
+ * elementos y asi el servidor no tiene que trocear nada.
+ */
+function montarExterna(item, clave) {
+  if (esImagen(item)) {
+    if (!mapa.getSource(clave)) {
+      mapa.addSource(clave, {
+        type: 'raster',
+        tiles: [`${location.origin}/api/externas/${item.id}/tiles/{z}/{x}/{y}.png`],
+        tileSize: 256,
+        bounds: item.bounds || undefined,
+        // Los vuelos no dan mas de si; pedir z20 solo multiplica peticiones.
+        maxzoom: 19,
+      });
+    }
+    mapa.addLayer({ id: clave, type: 'raster', source: clave, paint: { 'raster-opacity': 1 } });
+    return;
+  }
+
+  if (!mapa.getSource(clave)) {
+    mapa.addSource(clave, {
+      type: 'geojson',
+      data: `${location.origin}/api/externas/${item.id}.geojson`,
+    });
+  }
+  const color = expresionColor(item);
+  mapa.addLayer({
+    id: `${clave}-relleno`, type: 'fill', source: clave, filter: ES_POLIGONO,
+    paint: { 'fill-color': color, 'fill-opacity': 0.32 },
+  });
+  mapa.addLayer({
+    id: `${clave}-borde`, type: 'line', source: clave,
+    filter: ['any', ES_POLIGONO, ES_LINEA],
+    paint: { 'line-color': color, 'line-width': ['case', ES_LINEA, 3, 1.6] },
+  });
+  mapa.addLayer({
+    id: `${clave}-punto`, type: 'circle', source: clave, filter: ES_PUNTO,
+    paint: {
+      'circle-color': color,
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 3.5, 12, 6, 18, 9],
+      // Borde oscuro en vez de blanco: distingue de un vistazo lo que viene de
+      // fuera de lo que dibujo el equipo, sin gastar un color.
+      'circle-stroke-color': '#11161d',
+      'circle-stroke-width': 1.4,
+    },
+  });
+}
+
 /**
  * Sincroniza las capas de MapLibre con las capas del servidor.
  *
@@ -198,24 +264,28 @@ const ENCIMA = ['seleccion-relleno', 'seleccion-borde', 'seleccion-punto',
  * @param {Array} items lista mixta de capas vectoriales y rasters, de fondo a frente
  */
 export function sincronizarCapas(items) {
-  const deseadas = items.map((i) => (i.esRaster ? `raster-${i.id}` : `capa-${i.id}`));
+  const deseadas = items.map(claveDe);
 
   // Quitar lo que ya no existe.
   for (const clave of montadas) {
     if (deseadas.includes(clave)) continue;
-    for (const sufijo of ['', '-relleno', '-borde', '-punto']) {
+    for (const sufijo of ['', ...PARTES_VECTOR]) {
       const id = clave + sufijo;
       if (mapa.getLayer(id)) mapa.removeLayer(id);
     }
-    if (clave.startsWith('raster-') && mapa.getSource(clave)) mapa.removeSource(clave);
+    // Las capas propias comparten la fuente 'datos' y esa no se toca; cada
+    // raster y cada fuente externa tienen la suya y se va con ellos.
+    if (!clave.startsWith('capa-') && mapa.getSource(clave)) mapa.removeSource(clave);
   }
 
   // Anadir lo que falta.
   for (const item of items) {
-    const clave = item.esRaster ? `raster-${item.id}` : `capa-${item.id}`;
-    if (montadas.includes(clave) && mapa.getLayer(item.esRaster ? clave : `${clave}-relleno`)) continue;
+    const clave = claveDe(item);
+    if (montadas.includes(clave) && mapa.getLayer(esImagen(item) ? clave : `${clave}-relleno`)) continue;
 
-    if (item.esRaster) {
+    if (item.esExterna) {
+      montarExterna(item, clave);
+    } else if (item.esRaster) {
       if (!mapa.getSource(clave)) {
         mapa.addSource(clave, {
           type: 'raster',
@@ -260,8 +330,8 @@ export function sincronizarCapas(items) {
   // Reordenar: mover cada una al tope en orden ascendente deja la ultima
   // (la de mayor orden) al frente.
   for (const item of items) {
-    const clave = item.esRaster ? `raster-${item.id}` : `capa-${item.id}`;
-    for (const sufijo of item.esRaster ? [''] : ['-relleno', '-borde', '-punto']) {
+    const clave = claveDe(item);
+    for (const sufijo of esImagen(item) ? [''] : PARTES_VECTOR) {
       if (mapa.getLayer(clave + sufijo)) mapa.moveLayer(clave + sufijo);
     }
   }
@@ -275,17 +345,17 @@ export function sincronizarCapas(items) {
 /** Visibilidad, opacidad y color, sin tocar el orden. */
 export function aplicarEstilos(items) {
   for (const item of items) {
-    const clave = item.esRaster ? `raster-${item.id}` : `capa-${item.id}`;
+    const clave = claveDe(item);
     const visible = item.visible ? 'visible' : 'none';
     const opacidad = item.opacidad ?? 1;
 
-    if (item.esRaster) {
+    if (esImagen(item)) {
       if (!mapa.getLayer(clave)) continue;
       mapa.setLayoutProperty(clave, 'visibility', visible);
       mapa.setPaintProperty(clave, 'raster-opacity', opacidad);
       continue;
     }
-    for (const sufijo of ['-relleno', '-borde', '-punto']) {
+    for (const sufijo of PARTES_VECTOR) {
       const id = clave + sufijo;
       if (!mapa.getLayer(id)) continue;
       mapa.setLayoutProperty(id, 'visibility', visible);
@@ -311,7 +381,16 @@ export function aplicarEstilos(items) {
 export function capasConsultables() {
   return montadas
     .filter((c) => c.startsWith('capa-'))
-    .flatMap((c) => ['-relleno', '-borde', '-punto'].map((s) => c + s))
+    .flatMap((c) => PARTES_VECTOR.map((s) => c + s))
+    .filter((id) => mapa.getLayer(id));
+}
+
+/** Lo mismo para las fuentes externas. Van por separado porque su ficha no
+ *  sale de la base sino de los atributos que ya viajan en el GeoJSON. */
+export function capasExternasConsultables() {
+  return montadas
+    .filter((c) => c.startsWith('ext-'))
+    .flatMap((c) => PARTES_VECTOR.map((s) => c + s))
     .filter((id) => mapa.getLayer(id));
 }
 
@@ -328,6 +407,23 @@ export function resaltar(id) {
   const filtro = ['==', ['get', 'id'], id ?? -1];
   for (const capa of ['seleccion-relleno', 'seleccion-borde', 'seleccion-punto']) {
     if (mapa.getLayer(capa)) mapa.setFilter(capa, filtro);
+  }
+}
+
+/** Vuelve a pedir las fuentes externas ya montadas.
+ *
+ *  Un GeoJSON se descarga una sola vez al montarlo, asi que sin esto una capa
+ *  de reportes ciudadanos encendida en la manana seguiria mostrando los de la
+ *  manana. El parametro de tiempo solo sirve para saltarse la cache del
+ *  navegador; el servidor lo ignora y devuelve lo que tenga, que es lo que
+ *  evita castigar a la fuente cuando varios refrescan a la vez. */
+export function refrescarExternas() {
+  for (const clave of montadas) {
+    if (!clave.startsWith('ext-')) continue;
+    const fuente = mapa.getSource(clave);
+    if (!fuente?.setData) continue;
+    fuente.setData(
+      `${location.origin}/api/externas/${clave.slice(4)}.geojson?v=${Date.now()}`);
   }
 }
 

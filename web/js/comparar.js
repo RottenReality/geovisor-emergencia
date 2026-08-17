@@ -23,8 +23,11 @@ let mapaB = null;
 let posicion = 0.5;              // fraccion del ancho, 0..1
 let arrastrando = false;
 
-const idDe = (item) => `${item.esRaster ? 'r' : 'c'}${item.id}`;
+const idDe = (item) => `${item.esExterna ? 'x' : item.esRaster ? 'r' : 'c'}${item.id}`;
 const buscar = (clave) => items.find((i) => idDe(i) === clave) || null;
+
+/** Se pinta como imagen: raster propio u ortoimagen externa. */
+const esImagen = (item) => Boolean(item.esRaster || item.esImagen);
 
 // ---------------------------------------------------------------------------
 // Panel
@@ -41,7 +44,8 @@ export function abrirPanel() {
        ${escapar(i.nombre)}</option>`).join('');
 
   // Por defecto, las dos primeras imagenes: es el caso habitual (antes/despues).
-  const imagenes = comparables.filter((i) => i.esRaster);
+  // Cuenta la ortoimagen del IGAC, que es precisamente el "antes" de la zona.
+  const imagenes = comparables.filter(esImagen);
   const porDefecto = imagenes.length >= 2 ? imagenes : comparables;
 
   $('comparar-cuerpo').innerHTML = `
@@ -171,11 +175,13 @@ function sincronizarVista() {
 
 /** Replica una capa del visor dentro del segundo mapa. */
 function anadirCapa(destino, item) {
-  if (item.esRaster) {
+  if (esImagen(item)) {
     destino.addSource('cmp', {
       type: 'raster',
-      tiles: [`${location.origin}/api/rasters/${item.id}/tiles/{z}/{x}/{y}.png` +
-              `?c=${item.combinacion || 'natural'}&r=${item.render || 0}`],
+      tiles: [item.esExterna
+        ? `${location.origin}/api/externas/${item.id}/tiles/{z}/{x}/{y}.png`
+        : `${location.origin}/api/rasters/${item.id}/tiles/{z}/{x}/{y}.png` +
+          `?c=${item.combinacion || 'natural'}&r=${item.render || 0}`],
       tileSize: 256,
       bounds: item.bounds || undefined,
     });
@@ -183,33 +189,46 @@ function anadirCapa(destino, item) {
     return;
   }
 
-  destino.addSource('cmp', {
-    type: 'vector',
-    tiles: [`${location.origin}/api/tiles/{z}/{x}/{y}.pbf`],
-    minzoom: 0,
-    maxzoom: 22,
-  });
-  const soloCapa = ['==', ['get', 'capa_id'], item.id];
+  // Las capas propias viven todas en la misma tesela vectorial y hay que
+  // filtrar la que toca; una fuente externa es un GeoJSON suyo y entero.
+  const externa = !!item.esExterna;
+  if (externa) {
+    destino.addSource('cmp', {
+      type: 'geojson',
+      data: `${location.origin}/api/externas/${item.id}.geojson`,
+    });
+  } else {
+    destino.addSource('cmp', {
+      type: 'vector',
+      tiles: [`${location.origin}/api/tiles/{z}/{x}/{y}.pbf`],
+      minzoom: 0,
+      maxzoom: 22,
+    });
+  }
+
   const esPoligono = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false];
   const esLinea = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false];
   const esPunto = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false];
+  const soloCapa = externa ? null : ['==', ['get', 'capa_id'], item.id];
+  const solo = (tipo) => (soloCapa ? ['all', soloCapa, tipo] : tipo);
+  const origen = externa ? {} : { 'source-layer': 'elementos' };
   // Mismo color (o misma simbologia tematica) que en el mapa principal, para
   // que comparar no cambie el codigo de colores a mitad de analisis.
   const color = expresionColor(item);
 
   destino.addLayer({
-    id: 'cmp-relleno', type: 'fill', source: 'cmp', 'source-layer': 'elementos',
-    filter: ['all', soloCapa, esPoligono],
+    id: 'cmp-relleno', type: 'fill', source: 'cmp', ...origen,
+    filter: solo(esPoligono),
     paint: { 'fill-color': color, 'fill-opacity': 0.32 },
   });
   destino.addLayer({
-    id: 'cmp-borde', type: 'line', source: 'cmp', 'source-layer': 'elementos',
-    filter: ['all', soloCapa, ['any', esPoligono, esLinea]],
+    id: 'cmp-borde', type: 'line', source: 'cmp', ...origen,
+    filter: solo(['any', esPoligono, esLinea]),
     paint: { 'line-color': color, 'line-width': 2 },
   });
   destino.addLayer({
-    id: 'cmp-punto', type: 'circle', source: 'cmp', 'source-layer': 'elementos',
-    filter: ['all', soloCapa, esPunto],
+    id: 'cmp-punto', type: 'circle', source: 'cmp', ...origen,
+    filter: solo(esPunto),
     paint: {
       'circle-color': color, 'circle-radius': 6,
       'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.6,
