@@ -571,13 +571,27 @@ class Producto:
     nombre: str
     organizacion: str
     url: str
-    tipo: str            # zip-ems | raster | enlace
+    tipo: str            # zip-ems | raster | geojson | huellas | enlace
     mb: float
     nota: str = ""
     motivo: str = ""
+    # Solo para 'huellas': que filas se quedan, en SQL de OGR. Es lo que hace
+    # importable un archivo que entero no cabe.
+    filtro: str = ""
 
 
 EMS = "https://rapidmapping.emergency.copernicus.eu/backend/EMSR916/"
+
+# Que huellas de edificación vale la pena traer del producto de HDX.
+#
+# El equipo propuso recortar por municipios usando su capa de areas urbanas, y
+# la idea es buena; para ESTOS dos archivos no es la que sirve. Son de Cali
+# solamente, asi que recortar por area urbana deja fuera 167 de los 614
+# edificios marcados -los periurbanos- y sigue dejando dentro trescientos mil
+# sin nada que mirar. Lo que separa la señal del volumen aqui es la prediccion:
+# 320.791 huellas, 1.047 con algun indicio de daño. Se traen esas, todas, sin
+# recorte geografico, para no perder ni una marca.
+FILTRO_HUELLAS = "damaged = 1 OR damage_pct_0m > 0"
 
 PRODUCTOS: tuple[Producto, ...] = (
     Producto(
@@ -630,11 +644,12 @@ PRODUCTOS: tuple[Producto, ...] = (
         url="https://data.humdata.org/dataset/98e2bb4b-e2b9-4178-bf47-826883ca08cc/resource/"
             "d146b2a4-6794-4792-a0df-31841312b85c/download/"
             "airbus_8-10_cali_hdx_building_footprints_with_predictions_validated.gpkg",
-        tipo="enlace",
+        tipo="huellas",
         mb=73.3,
-        motivo="GeoPackage de 73 MB con cientos de miles de huellas. Cargarlo a esta VPS "
-               "dejaría el visor lento para todo el equipo; conviene trabajarlo en QGIS y "
-               "subir solo el recorte que interese.",
+        filtro=FILTRO_HUELLAS,
+        nota="320.791 huellas de edificación (Google), de las que el modelo marca 1.047 con "
+             "algún indicio de daño. Se traen solo esas: el archivo entero dejaría el visor "
+             "lento para todo el equipo. Trae damage_pct_0m para clasificar por color.",
     ),
     Producto(
         clave="hdx-footprints-overture",
@@ -643,9 +658,11 @@ PRODUCTOS: tuple[Producto, ...] = (
         url="https://data.humdata.org/dataset/98e2bb4b-e2b9-4178-bf47-826883ca08cc/resource/"
             "a00eebfb-0590-456a-b46d-4633122330d9/download/"
             "airbus_8-10_cali_overture_building_footprints_with_predictions.gpkg",
-        tipo="enlace",
+        tipo="huellas",
         mb=27.1,
-        motivo="Mismo caso que el anterior: mejor recortarlo en QGIS antes de subirlo.",
+        filtro=FILTRO_HUELLAS,
+        nota="97.351 huellas (Overture), de las que el modelo marca 570. Mismo criterio que "
+             "el anterior; sirve para contrastar las dos fuentes de huellas entre sí.",
     ),
 )
 

@@ -30,7 +30,7 @@ from pydantic import BaseModel
 
 from .. import config, db, fuentes
 from ..auth import requiere_sesion
-from .rasters import Importacion, importar as importar_raster
+from .rasters import Importacion, _correr, importar as importar_raster
 from .uploads import insertar_geojson
 
 router = APIRouter(prefix="/api/externas", dependencies=[Depends(requiere_sesion)])
@@ -591,6 +591,20 @@ def _nombre_capa_ems(miembro: str) -> tuple[str, str]:
     return CAPAS_EMS.get(token, (token, "#3a86ff"))
 
 
+async def _descargar_a(url: str, ruta: str) -> None:
+    """Descarga a disco por trozos.
+
+    Los productos de huellas rondan los 75 MB. Cargarlos enteros en memoria
+    para volver a escribirlos en disco cuesta el doble en un contenedor con
+    512 MB, y el archivo va a acabar en disco de todas formas.
+    """
+    with open(ruta, "wb") as archivo:
+        async with _cliente.stream("GET", url, timeout=300.0) as respuesta:
+            respuesta.raise_for_status()
+            async for trozo in respuesta.aiter_bytes(1 << 20):
+                archivo.write(trozo)
+
+
 @router.post("/productos/{clave}/importar")
 async def importar_producto(clave: str, sesion: dict = Depends(requiere_sesion)):
     producto = fuentes.PRODUCTO_POR_CLAVE.get(clave)
@@ -600,14 +614,25 @@ async def importar_producto(clave: str, sesion: dict = Depends(requiere_sesion))
         raise HTTPException(status_code=400, detail=producto.motivo)
 
     try:
+        if producto.tipo in ("huellas", "raster"):
+            carpeta = (config.DIR_ENTRADA if producto.tipo == "raster"
+                       else os.path.join(config.DIR_DATOS, "temporal"))
+            os.makedirs(carpeta, exist_ok=True)
+            extension = "tif" if producto.tipo == "raster" else "gpkg"
+            ruta = os.path.join(carpeta, f"{producto.clave}.{extension}")
+            await _descargar_a(producto.url, ruta)
+            if producto.tipo == "raster":
+                return {"raster": await importar_raster(
+                    Importacion(archivo=os.path.basename(ruta),
+                                nombre=producto.nombre[:120]), sesion)}
+            return await _importar_huellas(producto, ruta, sesion)
+
         respuesta = await _cliente.get(producto.url, timeout=300.0)
         respuesta.raise_for_status()
     except httpx.HTTPError as excepcion:
         raise HTTPException(status_code=502,
                             detail=f"No se pudo descargar: {excepcion}") from excepcion
 
-    if producto.tipo == "raster":
-        return await _importar_raster(producto, respuesta.content, sesion)
     if producto.tipo == "geojson":
         capa_id, insertados, _ = await insertar_geojson(
             respuesta.json(), producto.nombre[:120], "#457b9d", sesion.get("autor"))
@@ -652,6 +677,54 @@ async def _importar_zip_ems(producto, contenido: bytes, sesion: dict) -> dict:
         raise HTTPException(status_code=502,
                             detail="El producto no traía capas con entidades")
     return {"capas": creadas, "vacias": vacias}
+
+
+async def _importar_huellas(producto, origen: str, sesion: dict) -> dict:
+    """Trae de un GeoPackage grande solo las filas que dicen algo.
+
+    Los dos productos de huellas de HDX son trescientas mil y cien mil
+    edificaciones en UTM 18N. Meterlas enteras rompe el visor para todo el
+    equipo: la tesela vectorial no filtra por zoom, asi que un solo mosaico
+    sobre Cali intentaria dibujarlas todas. Con el filtro de la prediccion
+    quedan unas mil, que es lo que de verdad hay que ir a mirar en la imagen.
+
+    El filtro y la reproyeccion los hace GDAL, que ya esta en la imagen, en
+    lugar de cargar el archivo entero en memoria.
+    """
+    destino = f"{os.path.splitext(origen)[0]}.geojson"
+
+    try:
+        codigo, _, error = await _correr(
+            "ogr2ogr", "-f", "GeoJSON", destino, origen,
+            "-t_srs", "EPSG:4326",
+            "-where", producto.filtro,
+            "-lco", "COORDINATE_PRECISION=6",
+        )
+        if codigo != 0 or not os.path.exists(destino):
+            raise HTTPException(
+                status_code=502,
+                detail=f"No se pudo filtrar el archivo: {error.decode()[:200]}")
+
+        with open(destino, encoding="utf-8") as archivo:
+            coleccion = json.load(archivo)
+    finally:
+        # Son cien megabytes que no hacen falta una vez ingerido lo util.
+        # SQLite deja ademas sus dos archivos de diario junto al GeoPackage.
+        for ruta in (origen, destino, f"{origen}-shm", f"{origen}-wal"):
+            if os.path.exists(ruta):
+                try:
+                    os.remove(ruta)
+                except OSError:
+                    pass
+
+    if not coleccion.get("features"):
+        raise HTTPException(status_code=502,
+                            detail="El filtro no dejó ninguna edificación")
+
+    capa_id, insertados, _ = await insertar_geojson(
+        coleccion, producto.nombre[:120], "#c1121f", sesion.get("autor"))
+    return {"capas": [{"capa_id": capa_id, "nombre": producto.nombre,
+                       "insertados": insertados}], "vacias": []}
 
 
 async def _importar_raster(producto, contenido: bytes, sesion: dict) -> dict:
