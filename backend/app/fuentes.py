@@ -74,6 +74,11 @@ class Fuente:
     color: str = "#3a86ff"
     minutos: int = 10           # cuanto vale la pena reusar lo ya descargado
     nota: str = ""              # advertencia de la fuente, tal como la dio el equipo
+    # Generalizacion de la geometria, en grados. Solo para capas cuya forma
+    # exacta no aporta nada: una grilla de intensidad sismica sin simplificar
+    # son 36 MB, y esa precision es falsa, porque el propio ShakeMap se calcula
+    # sobre una malla mucho mas gruesa.
+    tolerancia: float = 0.0
     naturaleza: str = ""        # dinamica | semi-estatica | estatica
     simbologia: dict | None = None
     # Solo para tipo 'lista'
@@ -104,9 +109,10 @@ DRP = "https://services.arcgis.com/vC1CdlKWEAtuT38d/arcgis/rest/services/"
 IGAC_ORTO = "https://mapas2.igac.gov.co/image2/rest/services/orto/"
 
 
-def _orto(ciudad: str, ruta: str) -> Fuente:
+def _orto(ciudad: str, ruta: str, clave: str) -> Fuente:
+    """La clave viaja dentro de la URL de las teselas: sin tildes."""
     return Fuente(
-        clave=f"igac-orto-{ciudad.lower()}",
+        clave=f"igac-orto-{clave}",
         nombre=f"Ortoimagen IGAC · {ciudad}",
         organizacion="IGAC",
         tema="imagen",
@@ -119,10 +125,10 @@ def _orto(ciudad: str, ruta: str) -> Fuente:
 
 CATALOGO: tuple[Fuente, ...] = (
     # -- Imagenes -----------------------------------------------------------
-    _orto("Cali", "ortoCali"),
-    _orto("Yumbo", "ortoYumbo"),
-    _orto("Palmira", "ortoPalmira"),
-    _orto("Jamundí", "ortoJamundi"),
+    _orto("Cali", "ortoCali", "cali"),
+    _orto("Yumbo", "ortoYumbo", "yumbo"),
+    _orto("Palmira", "ortoPalmira", "palmira"),
+    _orto("Jamundí", "ortoJamundi", "jamundi"),
 
     # -- Danos --------------------------------------------------------------
     Fuente(
@@ -242,8 +248,9 @@ CATALOGO: tuple[Fuente, ...] = (
         color="#9d4edd",
         minutos=30,
         naturaleza="dinamica",
-        nota="Versión liviana (4 MB) del registro agregado; la completa añade el detalle "
-             "de evidencias. Campos DIVIPOLA y EDAN normalizados.",
+        nota="Buena parte de los registros solo tiene municipio, sin coordenadas, y esos "
+             "no se pueden dibujar. Versión liviana; la completa añade el detalle de "
+             "evidencias. Campos DIVIPOLA y EDAN normalizados.",
         simbologia={"campo": "severidad", "modo": "categorias",
                     "colores": {"COLAPSO": "#8c0d10", "GRAVE": "#e63946",
                                 "MODERADO": "#f4a261", "LEVE": "#ffd166",
@@ -469,7 +476,9 @@ CATALOGO: tuple[Fuente, ...] = (
         color="#f77f00",
         minutos=1440,
         naturaleza="semi-estatica",
-        nota="Polígonos de grilla. Solo se reemplaza si se recalcula el evento.",
+        tolerancia=0.01,
+        nota="Polígonos de grilla, generalizados a ~1 km para poder dibujarlos: sin "
+             "simplificar son 36 MB. Solo se reemplaza si se recalcula el evento.",
         simbologia={"campo": "PARAMVALUE", "modo": "rangos",
                     "cortes": [3, 4, 4.5, 5, 5.5, 6.5],
                     "colores": ["#ffffb2", "#fed976", "#feb24c", "#f03b20", "#bd0026"]},

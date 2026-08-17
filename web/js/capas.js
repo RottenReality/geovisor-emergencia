@@ -366,6 +366,11 @@ function pintarFilaExterna(item, indice, total, grupoApagado) {
       <div class="capa-detalle">
         <p class="nota"><strong>${escapar(item.fuente.organizacion)}</strong>${
           item.fuente.nota ? ` · ${escapar(item.fuente.nota)}` : ''}</p>
+        ${item.sinUbicacion ? `
+          <p class="nota aviso-tema">
+            ${item.sinUbicacion.toLocaleString('es-CO')} registros de esta fuente no traen
+            coordenadas y no están en el mapa.
+          </p>` : ''}
         <label>Opacidad <output>${Math.round((item.opacidad ?? 1) * 100)}%</output></label>
         <input type="range" min="0" max="100" value="${Math.round((item.opacidad ?? 1) * 100)}"
                data-accion="opacidad">

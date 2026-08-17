@@ -107,11 +107,19 @@ def _recortar(propiedades: dict, fuente: fuentes.Fuente) -> dict:
     return propiedades
 
 
+# Registros que la fuente trae pero que no se pueden dibujar por no tener
+# posicion. Hay que decirlo: en el registro agregado son dos de cada tres, y
+# creer que el mapa los muestra todos es leer mal el alcance del dato.
+_sin_ubicacion: dict[str, int] = {}
+
+
 def _coleccion(features: list[dict], fuente: fuentes.Fuente) -> dict:
     limpias = []
+    fuera = 0
     for elemento in features:
         if not elemento.get("geometry"):
-            continue      # sin geometria no hay nada que dibujar
+            fuera += 1
+            continue
         limpias.append({
             "type": "Feature",
             "geometry": elemento["geometry"],
@@ -119,7 +127,11 @@ def _coleccion(features: list[dict], fuente: fuentes.Fuente) -> dict:
         })
         if len(limpias) >= MAX_ENTIDADES:
             break
-    return {"type": "FeatureCollection", "features": limpias}
+    _sin_ubicacion[fuente.clave] = fuera
+    # 'sin_ubicacion' es un miembro extra, permitido por GeoJSON: MapLibre lo
+    # ignora y el visor lo usa para avisar en el acto de cuantos registros de
+    # la fuente se quedaron fuera del mapa.
+    return {"type": "FeatureCollection", "sin_ubicacion": fuera, "features": limpias}
 
 
 async def _json(url: str, parametros: dict | None = None, timeout: float = 60.0) -> dict:
@@ -156,16 +168,22 @@ async def _de_arcgis(fuente: fuentes.Fuente) -> dict:
     features: list[dict] = []
     desplazamiento = 0
     while len(features) < MAX_ENTIDADES:
-        pagina = await _json(fuente.url + "/query", {
+        consulta = {
             "where": "1=1",
             "outFields": ",".join(fuente.campos) if fuente.campos else "*",
             "returnGeometry": "true",
             "outSR": 4326,
+            # Seis decimales son once centimetros. Lo que traen por defecto son
+            # quince digitos de precision inventada que solo engordan el envio.
+            "geometryPrecision": 6,
             "orderByFields": oid,
             "resultOffset": desplazamiento,
             "resultRecordCount": tamano,
             "f": "geojson",
-        })
+        }
+        if fuente.tolerancia:
+            consulta["maxAllowableOffset"] = fuente.tolerancia
+        pagina = await _json(fuente.url + "/query", consulta)
         if pagina.get("error"):
             raise RuntimeError(str(pagina["error"])[:200])
         trozo = pagina.get("features") or []
@@ -189,13 +207,15 @@ async def _de_lista(fuente: fuentes.Fuente) -> dict:
     if not isinstance(filas, list):
         raise RuntimeError(f"No se encontro el arreglo {fuente.lista!r}")
 
+    # Los que no traen posicion se dejan pasar sin geometria a proposito:
+    # _coleccion los descarta y de paso los cuenta, que es lo que permite
+    # decirle al equipo cuantos registros de la fuente no estan en el mapa.
     features = []
     for fila in filas:
         lat, lon = _hondo(fila, fuente.lat), _hondo(fila, fuente.lon)
-        if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
-            continue
+        ubicado = isinstance(lat, (int, float)) and isinstance(lon, (int, float))
         features.append({
-            "geometry": {"type": "Point", "coordinates": [lon, lat]},
+            "geometry": {"type": "Point", "coordinates": [lon, lat]} if ubicado else None,
             "properties": fila,
         })
     return _coleccion(features, fuente)
@@ -343,6 +363,7 @@ def _ficha(fuente: fuentes.Fuente) -> dict:
         # cuando son sin volver a pedirlas.
         "total": guardado[2] if guardado else None,
         "descargado": round(time.time() - guardado[0]) if guardado else None,
+        "sin_ubicacion": _sin_ubicacion.get(fuente.clave) or None,
     }
 
 

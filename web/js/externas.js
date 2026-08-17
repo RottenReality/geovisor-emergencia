@@ -37,6 +37,8 @@ const guardar = () => localStorage.setItem(LLAVE, JSON.stringify(encendidas));
 
 /** Cuantos elementos trajo la ultima descarga, por clave. */
 const totales = {};
+/** Cuantos registros de la fuente no se pudieron dibujar por no traer posicion. */
+const sinUbicacion = {};
 
 const fuenteDe = (clave) => catalogo?.fuentes.find((f) => f.clave === clave) || null;
 
@@ -65,6 +67,7 @@ export function items() {
         orden: estado.orden ?? 0,
         bounds: fuente.bounds || null,
         total: totales[clave] ?? fuente.total,
+        sinUbicacion: sinUbicacion[clave] ?? fuente.sin_ubicacion ?? 0,
         fuente,
       };
     })
@@ -99,6 +102,7 @@ export async function encender(clave) {
   if (fuente.tipo !== 'imagen') {
     const datos = await api(`/api/externas/${clave}.geojson`);
     totales[clave] = datos.features.length;
+    sinUbicacion[clave] = datos.sin_ubicacion || 0;
   }
 
   const orden = fuente.tipo === 'imagen'
@@ -183,7 +187,8 @@ function pista(fuente) {
   const edad = fuente.descargado;
   const cuando = edad == null ? ''
     : edad < 90 ? ' · recién' : ` · hace ${Math.round(edad / 60)} min`;
-  return `${total.toLocaleString('es-CO')}${cuando}`;
+  const fuera = sinUbicacion[fuente.clave] ?? fuente.sin_ubicacion ?? 0;
+  return `${total.toLocaleString('es-CO')}${fuera ? ` +${fuera.toLocaleString('es-CO')} sin ubicar` : ''}${cuando}`;
 }
 
 function pintarCatalogo() {
