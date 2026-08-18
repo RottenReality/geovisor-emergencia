@@ -8,6 +8,10 @@ momento, se recortan y se cachean unos minutos. Asi lo que ve el equipo es lo
 que hay ahora mismo en la fuente, sin un trabajo de sincronizacion que
 mantener durante una emergencia.
 
+De la base si sale QUE fuentes estan publicadas y en que orden: encenderlas es
+una decision del equipo, no de cada navegador. El catalogo dice lo que se puede
+mirar; la tabla `externas` y la pila dicen lo que el equipo decidio mirar.
+
 Por que un modulo de codigo y no una tabla
 -----------------------------------------
 Cada fuente necesita saber que campos conservar, como simbolizarla y como

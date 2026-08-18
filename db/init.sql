@@ -194,6 +194,40 @@ FROM elementos e
 LEFT JOIN capas c ON c.id = e.capa_id;
 
 -- ---------------------------------------------------------------------------
+-- Pila de capas: quien va encima de quien, y que hay dentro de que grupo.
+--
+-- Antes el orden vivia en capas.orden, rasters.orden y el localStorage de cada
+-- navegador, con escalas independientes. Eso hacia imposible intercalar una
+-- fuente externa entre dos capas propias, y hacia que dos navegadores con
+-- distinto juego de externas se pisaran la numeracion en cada recarga.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS grupos (
+  id     SERIAL PRIMARY KEY,
+  nombre TEXT NOT NULL,
+  color  TEXT NOT NULL DEFAULT '#8d99ae'
+);
+
+-- Estado de una fuente externa publicada en el mapa del equipo. Es el
+-- equivalente de lo que capas y rasters ya guardan en su propia tabla; el
+-- nombre, el color y la URL los pone el catalogo de fuentes.py, no la base.
+CREATE TABLE IF NOT EXISTS externas (
+  clave    TEXT PRIMARY KEY,
+  visible  BOOLEAN NOT NULL DEFAULT true,
+  opacidad REAL    NOT NULL DEFAULT 1
+);
+
+-- Una fila por cosa que ocupa sitio en el panel, grupos incluidos:
+--   capa-13  raster-6  ext-ungrd-ede  grupo-2
+-- Estar aqui es lo que significa estar en el mapa.
+CREATE TABLE IF NOT EXISTS pila (
+  clave    TEXT PRIMARY KEY,
+  grupo_id INTEGER REFERENCES grupos(id) ON DELETE SET NULL,
+  orden    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pila_grupo ON pila (grupo_id, orden);
+
+-- ---------------------------------------------------------------------------
 -- Capas iniciales para respuesta sismica. Solo en una base recien creada:
 -- si el equipo ya borro alguna, no debe reaparecer en el siguiente despliegue.
 -- ---------------------------------------------------------------------------

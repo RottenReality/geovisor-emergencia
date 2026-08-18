@@ -26,10 +26,12 @@ import zipfile
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import config, db, fuentes
+from .. import pila as pila_logica
 from ..auth import requiere_sesion
+from .pila import materializar
 from .rasters import Importacion, _correr, importar as importar_raster
 from .uploads import insertar_geojson
 
@@ -382,9 +384,13 @@ async def catalogo():
         if ficha["clave"] in acotadas:
             ficha["bounds"] = acotadas[ficha["clave"]]
 
+    publicadas = await db.pool().fetch(
+        "SELECT clave, visible, opacidad FROM externas")
+
     return {
         "temas": [{"clave": c, "titulo": t, "descripcion": d} for c, t, d in fuentes.TEMAS],
         "fuentes": fichas,
+        "publicadas": [dict(p) for p in publicadas],
         "productos": [{
             "clave": p.clave, "nombre": p.nombre, "organizacion": p.organizacion,
             "tipo": p.tipo, "mb": p.mb, "nota": p.nota, "motivo": p.motivo, "url": p.url,
@@ -487,6 +493,55 @@ async def datos(clave: str):
         # el mapa.
         headers={"Cache-Control": "private, max-age=60"},
     )
+
+
+class ExternaParche(BaseModel):
+    visible: bool | None = None
+    opacidad: float | None = Field(default=None, ge=0, le=1)
+
+
+@router.post("/{clave}/encender", status_code=201)
+async def encender(clave: str):
+    """Publica la fuente en el mapa del EQUIPO, no solo para quien pulsa.
+
+    Entra al frente del nivel superior: se acaba de anadir y esconderla al
+    fondo obligaria a buscarla.
+    """
+    _buscar(clave)   # 404 si no esta en el catalogo
+    entradas = await materializar()
+    techo = max([f["orden"] for f in entradas if f["grupo_id"] is None], default=0)
+
+    async with db.pool().acquire() as conexion:
+        async with conexion.transaction():
+            await conexion.execute(
+                "INSERT INTO externas (clave) VALUES ($1) ON CONFLICT DO NOTHING", clave)
+            await conexion.execute(
+                "INSERT INTO pila (clave, grupo_id, orden) VALUES ($1, NULL, $2) "
+                "ON CONFLICT (clave) DO NOTHING",
+                f"ext-{clave}", techo + pila_logica.PASO)
+    return {"ok": True}
+
+
+@router.delete("/{clave}")
+async def apagar(clave: str):
+    """La quita del mapa del equipo. Sin confirmacion: el panel es de todos."""
+    async with db.pool().acquire() as conexion:
+        async with conexion.transaction():
+            await conexion.execute("DELETE FROM pila WHERE clave=$1", f"ext-{clave}")
+            await conexion.execute("DELETE FROM externas WHERE clave=$1", clave)
+    return {"ok": True}
+
+
+@router.patch("/{clave}")
+async def editar(clave: str, parche: ExternaParche):
+    fila = await db.pool().fetchrow(
+        "UPDATE externas SET visible=COALESCE($2, visible), "
+        "opacidad=COALESCE($3, opacidad) WHERE clave=$1 "
+        "RETURNING clave, visible, opacidad",
+        clave, parche.visible, parche.opacidad)
+    if fila is None:
+        raise HTTPException(status_code=404, detail="Esa fuente no esta publicada")
+    return dict(fila)
 
 
 @router.get("/{clave}/tiles/{z}/{x}/{y}.png")
