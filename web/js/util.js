@@ -27,6 +27,25 @@ export async function api(ruta, opciones = {}) {
   return respuesta.status === 204 ? null : respuesta.json();
 }
 
+/** Dispara una descarga del navegador sin sacar a nadie del visor.
+ *
+ * Un <a download> y no un fetch(): el enlace viaja con la cookie de sesion,
+ * deja el progreso y la reanudacion en manos del navegador, y respeta el
+ * nombre que manda el servidor en Content-Disposition. Bajar un COG de 1,8 GB
+ * por fetch() lo cargaria entero en memoria antes de guardar el primer byte.
+ */
+export function descargarArchivo(url, mensaje, nombre = '') {
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  // Vacio = manda el Content-Disposition del servidor. Solo hay que dar el
+  // nombre a mano cuando la url es un blob:, que no lleva cabeceras.
+  enlace.download = nombre;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  if (mensaje) avisar(mensaje);
+}
+
 export function escapar(texto) {
   const div = document.createElement('div');
   div.textContent = texto;
@@ -44,6 +63,13 @@ export const formatearLongitud = (m) =>
 
 export const formatearArea = (m2) =>
   m2 < 10000 ? `${numero(m2, 0)} m²` : `${numero(m2 / 10000, 2)} ha`;
+
+/** Peso de un archivo, para rotular el boton que lo baja. */
+export const formatearPeso = (mb) => {
+  if (mb == null) return '';
+  if (mb >= 1024) return `${numero(mb / 1024, 1)} GB`;
+  return `${numero(mb, mb < 10 ? 1 : 0)} MB`;
+};
 
 // --- Medicion geodesica ----------------------------------------------------
 // Solo para el rotulo en vivo mientras se dibuja. Las cifras oficiales las

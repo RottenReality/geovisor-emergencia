@@ -12,7 +12,7 @@
  * sitio para un indice.
  */
 
-import { api, avisar, escapar, $ } from './util.js';
+import { api, avisar, escapar, descargarArchivo, formatearPeso, $ } from './util.js';
 import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster } from './mapa.js';
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
@@ -199,6 +199,47 @@ function muestraDeColor(item, entradas) {
   return `<span class="punto-color tematica" style="background:linear-gradient(180deg, ${tramos})"></span>`;
 }
 
+/**
+ * Botones para bajar ESTA capa, dentro de sus propias opciones.
+ *
+ * Antes lo unico que habia era "exportar todo el dibujo" en el panel lateral,
+ * que obliga a entregar once capas cuando piden una. Aqui la descarga esta
+ * donde ya se esta mirando la capa.
+ *
+ * El vector sale en las dos proyecciones porque la eleccion no es de gusto:
+ * 9377 es lo que exige un informe oficial (metros, medidas de PostGIS) y 4326
+ * lo que lee cualquier herramienta web. El raster sale tal cual: el COG ya
+ * convertido, que abre en QGIS sin ningun paso previo.
+ */
+function bloqueDescarga(item) {
+  if (item.esRaster) {
+    const listo = item.estado === 'listo';
+    const peso = formatearPeso(item.mb);
+    return `
+      <button data-accion="descargar-raster" style="width:100%;margin-top:8px"
+              ${listo ? '' : 'disabled'}
+              title="${listo ? 'Bajar el GeoTIFF (COG) de esta imagen'
+                             : 'Estará disponible cuando termine de convertirse'}">
+        &#10515; Descargar GeoTIFF${peso ? ` (${peso})` : ''}
+      </button>`;
+  }
+  const vacia = !item.total;
+  return `
+    <label style="margin-top:8px">Descargar esta capa</label>
+    <div class="fila">
+      <button data-accion="descargar-9377" ${vacia ? 'disabled' : ''}
+              title="${vacia ? 'Esta capa no tiene elementos'
+                             : 'GeoJSON en EPSG:9377, con las medidas en metros. Para informe oficial.'}">
+        &#10515; Oficial 9377
+      </button>
+      <button data-accion="descargar-4326" ${vacia ? 'disabled' : ''}
+              title="${vacia ? 'Esta capa no tiene elementos'
+                             : 'GeoJSON en EPSG:4326 (WGS84). Para herramientas web.'}">
+        &#10515; WGS84
+      </button>
+    </div>`;
+}
+
 function pintarFila(item, indice, total, grupoApagado) {
   const clave = `${item.esRaster ? 'r' : 'c'}${item.id}`;
   const estado = ESTADOS[item.estado];
@@ -278,6 +319,7 @@ function pintarFila(item, indice, total, grupoApagado) {
           <button data-accion="encuadrar">Ir a la capa</button>
           <button data-accion="renombrar">Renombrar</button>
         </div>
+        ${bloqueDescarga(item)}
         <button data-accion="borrar" class="peligro">Eliminar capa</button>
         <button data-accion="expandir" class="tenue cerrar-detalle">Cerrar opciones</button>
       </div>`;
@@ -540,11 +582,68 @@ async function manejar(accion, item, clave) {
       break;
     }
 
+    case 'descargar-9377':
+    case 'descargar-4326':
+      await descargarCapa(item, accion.endsWith('9377') ? 9377 : 4326);
+      break;
+
+    case 'descargar-raster':
+      await descargarRaster(item);
+      break;
+
     case 'subir':
     case 'bajar':
       await intercambiar(item, accion === 'subir' ? 1 : -1);
       break;
   }
+}
+
+/**
+ * Baja UNA capa vectorial como GeoJSON.
+ *
+ * Va por fetch y no por enlace directo para que un fallo del servidor llegue
+ * al aviso de siempre, en vez de guardarse en el disco como un .geojson que
+ * en realidad contiene {"detail": "..."} -y que solo se descubre al abrirlo
+ * en QGIS, que es el peor momento posible. Se puede permitir porque una capa
+ * de dibujo cabe de sobra en memoria; el raster no, y por eso va aparte.
+ */
+async function descargarCapa(item, srid) {
+  try {
+    const respuesta = await fetch(`/api/export/geojson?srid=${srid}&capa_id=${item.id}`);
+    if (respuesta.status === 401) { location.href = '/login.html'; return; }
+    if (!respuesta.ok) {
+      const cuerpo = await respuesta.json().catch(() => ({}));
+      throw new Error(cuerpo.detail || `Error ${respuesta.status}`);
+    }
+    // El servidor ya nombro el archivo (capa, proyeccion y fecha); se respeta.
+    const cabecera = respuesta.headers.get('Content-Disposition') || '';
+    const nombre = /filename="([^"]+)"/.exec(cabecera)?.[1] || `${item.id}.geojson`;
+
+    const url = URL.createObjectURL(await respuesta.blob());
+    descargarArchivo(url, `"${item.nombre}" descargada en ${
+      srid === 9377 ? 'EPSG:9377 oficial' : 'WGS84'}.`, nombre);
+    // Liberar el blob de inmediato puede cortar la escritura en algunos
+    // navegadores; un minuto es de sobra y no deja el objeto colgado.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (error) { avisar(error.message, true); }
+}
+
+/**
+ * Baja el COG de un raster.
+ *
+ * Por enlace directo: una escena de Skysat ronda 1,8 GB y meterla en un blob
+ * antes de guardarla se lleva por delante la pestana. El precio es que el
+ * enlace se salta el manejo de errores de api(), asi que primero se comprueba
+ * que la sesion siga viva -son 72 horas y en campo caducan-, porque si no el
+ * navegador guardaria tan tranquilo la respuesta 401 como si fuera la imagen.
+ */
+async function descargarRaster(item) {
+  try {
+    await api('/api/session');
+  } catch { return; }   // api() ya redirigio al login
+  const peso = formatearPeso(item.mb);
+  descargarArchivo(`/api/rasters/${item.id}/descargar`,
+    `Descargando "${item.nombre}"${peso ? ` (${peso})` : ''}. Puede tardar un rato.`);
 }
 
 /** Intercambia el orden con la capa vecina DENTRO de su grupo.

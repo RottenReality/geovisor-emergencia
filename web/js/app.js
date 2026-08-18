@@ -1,6 +1,6 @@
 /* Orquestador del visor. */
 
-import { api, avisar, escapar, $ } from './util.js';
+import { api, avisar, escapar, descargarArchivo, $ } from './util.js';
 import {
   mapa, inicializarFuentes, capasConsultables, refrescarDatos, refrescarExternas,
   cambiarBase, baseGuardada, irA, seguirCursor,
@@ -214,17 +214,17 @@ $('buscar-entrada').onclick = listarEntrada;
 // ---------------------------------------------------------------------------
 // Descargas
 // ---------------------------------------------------------------------------
-function descargar(srid) {
-  const enlace = document.createElement('a');
-  enlace.href = `/api/export/geojson?srid=${srid}`;
-  enlace.download = '';
-  document.body.appendChild(enlace);
-  enlace.click();
-  enlace.remove();
-  avisar(srid === 9377 ? 'Descargando GeoJSON oficial (EPSG:9377).' : 'Descargando GeoJSON WGS84.');
-}
-$('exportar-9377').onclick = () => descargar(9377);
-$('exportar-4326').onclick = () => descargar(4326);
+// Sin capa_id: todo el dibujo en un archivo. Bajar UNA capa suelta vive en
+// las opciones de esa capa, dentro del panel de capas, que es donde se la
+// esta mirando cuando surge la necesidad.
+const descargarTodo = (srid) => descargarArchivo(
+  `/api/export/geojson?srid=${srid}`,
+  srid === 9377
+    ? 'Descargando todo el dibujo en GeoJSON oficial (EPSG:9377).'
+    : 'Descargando todo el dibujo en GeoJSON WGS84.');
+
+$('exportar-9377').onclick = () => descargarTodo(9377);
+$('exportar-4326').onclick = () => descargarTodo(4326);
 
 // ---------------------------------------------------------------------------
 // Rail, sesion y teclado

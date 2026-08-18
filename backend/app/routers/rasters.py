@@ -16,10 +16,12 @@ import json
 import os
 import re
 import shutil
+import unicodedata
 import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .. import config, db
@@ -105,6 +107,38 @@ class Importacion(BaseModel):
 def nombre_seguro(original: str) -> str:
     base = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(original or "raster.tif"))
     return f"{uuid.uuid4().hex[:12]}_{base[:60]}"
+
+
+def _ruta_publicada(archivo: str) -> str:
+    """Ruta en disco del COG publicado.
+
+    basename + join, igual que en el resto del modulo: lo que hay en la
+    columna arma la ruta, pero nunca puede salir del directorio de rasters.
+    """
+    return os.path.join(config.DIR_RASTERS, os.path.basename(archivo))
+
+
+def _peso_mb(archivo: str | None) -> float | None:
+    """Tamano del COG, en MB. None si todavia no hay archivo en disco."""
+    if not archivo:
+        return None
+    try:
+        return round(os.path.getsize(_ruta_publicada(archivo)) / 1024 / 1024, 1)
+    except OSError:
+        return None
+
+
+def _nombre_descarga(nombre: str, archivo: str) -> str:
+    """Nombre con el que baja el GeoTIFF.
+
+    El del disco lleva el prefijo aleatorio que le puso nombre_seguro y no
+    le dice nada a nadie; se entrega con el nombre que la imagen tiene en
+    el visor, sin acentos ni espacios para que sobreviva al viaje a
+    Windows, a un celular y a un ArcGIS.
+    """
+    plano = unicodedata.normalize("NFKD", nombre or "").encode("ascii", "ignore").decode()
+    raiz = re.sub(r"[^A-Za-z0-9]+", "-", plano).strip("-").lower()[:60] or "raster"
+    return f"{raiz}{os.path.splitext(archivo)[1].lower() or '.tif'}"
 
 
 async def _correr(*orden: str) -> tuple[int, bytes, bytes]:
@@ -446,12 +480,16 @@ async def procesar_raster(id_raster: int, origen: str, destino: str) -> None:
 async def listar():
     filas = await db.pool().fetch(
         "SELECT id, nombre, estado, mensaje, bounds, visible, opacidad, orden, "
-        "       autor, creado_en, combinacion, bandas, papeles, balance "
+        "       autor, creado_en, combinacion, bandas, papeles, balance, archivo "
         "FROM rasters ORDER BY orden NULLS LAST, id"
     )
     salida = []
     for f in filas:
         dato = dict(f)
+        # El peso va rotulado en el boton de descarga: sobre el terreno no
+        # se decide igual bajar 40 MB que 1,8 GB, y hay que saberlo ANTES de
+        # pulsar. El nombre del archivo en disco no sale de aqui.
+        dato["mb"] = _peso_mb(dato.pop("archivo", None))
         bandas = json.loads(dato.pop("bandas") or "[]")
         manual = json.loads(dato["papeles"]) if dato["papeles"] else None
         dato["balance"] = dato["balance"] or "auto"
@@ -665,6 +703,40 @@ async def vista(id_raster: int, banda: int | None = None, c: str | None = None):
         media_type=respuesta.headers.get("content-type", "image/png"),
         # Corta: se mira mientras se ajusta, y el ajuste cambia lo que muestra.
         headers={"Cache-Control": "private, max-age=60"},
+    )
+
+
+@router.get("/{id_raster}/descargar")
+async def descargar(id_raster: int):
+    """Entrega el COG publicado tal cual.
+
+    Es el archivo YA convertido, no el que se subio: georreferenciado, con
+    piramides y utilizable en QGIS o ArcGIS sin ningun paso previo.
+
+    Va por FileResponse y no por Response: lo manda en trozos y con
+    Content-Length, asi el navegador muestra progreso y admite reanudar en
+    vez de parecer colgado durante los cientos de MB que pesa una escena.
+    """
+    fila = await db.pool().fetchrow(
+        "SELECT nombre, archivo, estado FROM rasters WHERE id=$1", id_raster)
+    if fila is None:
+        raise HTTPException(status_code=404, detail="Raster no encontrado")
+    # 409 y no 404: la imagen existe, lo que pasa es que aun se esta
+    # convirtiendo o fallo. El visor lo distingue para decir cual es.
+    if fila["estado"] != "listo" or not fila["archivo"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Esa imagen todavia no esta lista para descargar")
+
+    ruta = _ruta_publicada(fila["archivo"])
+    if not os.path.isfile(ruta):
+        raise HTTPException(
+            status_code=404, detail="El archivo ya no esta en el servidor")
+
+    return FileResponse(
+        ruta,
+        media_type="image/tiff",
+        filename=_nombre_descarga(fila["nombre"], fila["archivo"]),
     )
 
 
