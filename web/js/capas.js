@@ -1,18 +1,20 @@
-/* Panel de capas, en tres grupos: imagenes debajo, fuentes externas en medio,
- * dibujo encima.
+/* Panel de capas.
  *
- * Los vectores propios van SIEMPRE por encima de las imagenes, porque se
- * dibuja sobre la ortofoto y nunca al reves. Fijarlo asi no quita libertad:
- * elimina la pregunta de si tal raster va antes o despues de tal capa de
- * puntos, y deja el reordenamiento donde de verdad importa, que es dentro de
- * cada grupo.
+ * No hay categorias fijas. Cualquier capa -dibujo, imagen o fuente externa-
+ * puede ir a cualquier altura, y el orden lo manda la pila, que es comun a
+ * todo el equipo. Antes iban en tres estratos inamovibles, y eso hacia
+ * imposible poner una externa entre dos capas propias, que resulto ser justo
+ * lo que hacia falta.
  *
- * Las fuentes externas quedan en medio y el grupo solo aparece cuando hay
- * alguna encendida: el catalogo son treinta y dos servicios y el panel no es
- * sitio para un indice.
+ * Agrupar es cosa aparte y la decide el equipo: un grupo puede llevar dentro
+ * un dibujo, una ortofoto y un servicio externo a la vez. Se pliega, se mueve
+ * en bloque y se apaga de un clic.
+ *
+ * Este archivo pinta; quien sabe de orden es pila.js.
  */
 
 import { api, avisar, escapar, descargarArchivo, formatearPeso, $ } from './util.js';
+import * as pila from './pila.js';
 import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster } from './mapa.js';
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
@@ -24,42 +26,37 @@ export let items = [];
 let expandida = null;
 let sondeo = null;
 
-const GRUPOS = [
-  { clave: 'raster',  titulo: 'Imágenes', vacio: 'Sin imágenes cargadas.' },
-  // Sin texto de vacio: cuando no hay ninguna encendida el grupo no se pinta.
-  { clave: 'externa', titulo: 'Fuentes externas', vacio: '' },
-  { clave: 'vector',  titulo: 'Dibujo',   vacio: 'Sin capas de dibujo.' },
-];
+/** Clave de esta capa dentro de la pila. */
+const claveDePila = (item) =>
+  item.esExterna ? `ext-${item.id}` : `${item.esRaster ? 'raster' : 'capa'}-${item.id}`;
 
-const grupoDe = (item) =>
-  (item.esExterna ? 'externa' : item.esRaster ? 'raster' : 'vector');
-
-/** Grupos apagados enteros. Es una vista local, no se guarda en el servidor. */
-const gruposOcultos = new Set();
-
+/** Plegado de grupos: es preferencia de vista y se queda en este navegador.
+ *  Lo demas -orden, pertenencia, encendido- es del equipo y vive en la base. */
 const plegados = new Set(
-  JSON.parse(localStorage.getItem('geovisor.plegados') || '[]'));
+  JSON.parse(localStorage.getItem('geovisor.grupos-plegados') || '[]'));
 const guardarPlegados = () =>
-  localStorage.setItem('geovisor.plegados', JSON.stringify([...plegados]));
+  localStorage.setItem('geovisor.grupos-plegados', JSON.stringify([...plegados]));
 
-/** Visibilidad real: la de la capa, apagada si su grupo esta apagado. */
-const efectivo = (item) => ({
-  ...item,
-  visible: item.visible && !gruposOcultos.has(grupoDe(item)),
-});
+/** Antes atenuaba las capas de un grupo apagado. Ya no hay grupos fijos que
+ *  apagar: la visibilidad de cada capa es la suya y nada mas. */
+const efectivo = (item) => item;
 
 export async function cargar() {
   const [capas, rasters] = await Promise.all([
     api('/api/capas').catch(() => []),
     api('/api/rasters').catch(() => []),
+    pila.cargar().catch(() => {}),
   ]);
 
-  const porOrden = (a, b) => (a.orden ?? 0) - (b.orden ?? 0);
-  items = [
-    ...rasters.map((r) => ({ ...r, esRaster: true })).sort(porOrden),
-    ...externas.items(),
-    ...capas.map((c) => ({ ...c, esRaster: false })).sort(porOrden),
-  ];
+  // La pila manda: dice que hay en el mapa y en que orden. Este mapa solo
+  // resuelve cada clave al objeto que el resto del visor sabe pintar.
+  const porClave = new Map([
+    ...rasters.map((r) => [`raster-${r.id}`, { ...r, esRaster: true }]),
+    ...capas.map((c) => [`capa-${c.id}`, { ...c, esRaster: false }]),
+    ...externas.items().map((x) => [`ext-${x.id}`, x]),
+  ]);
+
+  items = pila.aplanar().map((clave) => porClave.get(clave)).filter(Boolean);
 
   pintar();
   sincronizarCapas(
@@ -92,16 +89,8 @@ export async function asegurarVisible(capaId) {
   const capa = items.find((i) => !i.esRaster && i.id === capaId);
   if (!capa) return null;
 
-  const grupoApagado = gruposOcultos.has('vector');
-  if (grupoApagado) gruposOcultos.delete('vector');
-
   if (!capa.visible) {
     await actualizar(capa, { visible: true });
-    pintar();
-    return capa.nombre;
-  }
-  if (grupoApagado) {
-    aplicarEstilos(items.map(efectivo));
     pintar();
     return capa.nombre;
   }
@@ -125,62 +114,115 @@ function pintar() {
   const lista = $('lista-capas');
   lista.innerHTML = '';
 
-  if (!items.length) {
+  if (!items.length && !pila.grupos().length) {
     lista.innerHTML = '<p class="vacio">Aún no hay capas. Crea una o carga un archivo.</p>';
     return;
   }
 
-  // Los grupos se pintan de arriba abajo igual que se ven en el mapa: el
-  // dibujo encima de las imagenes.
-  for (const grupo of [...GRUPOS].reverse()) {
-    const delGrupo = items.filter((i) => grupoDe(i) === grupo.clave);
-    // Un grupo sin texto de vacio desaparece cuando no tiene nada: es el caso
-    // de las fuentes externas, que la mayor parte del tiempo no estorban.
-    if (!delGrupo.length && !grupo.vacio) continue;
-    const plegado = plegados.has(grupo.clave);
-    const apagado = gruposOcultos.has(grupo.clave);
-    const encendidas = apagado ? 0 : delGrupo.filter((i) => i.visible).length;
+  const porClave = new Map(items.map((i) => [claveDePila(i), i]));
 
-    const cabecera = document.createElement('div');
-    cabecera.className = 'grupo-cabecera' + (plegado ? ' plegado' : '');
-    cabecera.innerHTML = `
-      <button class="chevron" aria-expanded="${!plegado}"
-              aria-label="${plegado ? 'Desplegar' : 'Plegar'} ${grupo.titulo}">&#9662;</button>
-      <input type="checkbox" ${apagado ? '' : 'checked'}
-             aria-label="Mostrar todo el grupo ${grupo.titulo}">
-      <span class="titulo">${grupo.titulo}</span>
-      <span class="conteo ${encendidas ? 'vivo' : ''}">${encendidas}/${delGrupo.length}</span>`;
-
-    cabecera.querySelector('.chevron').onclick = () => {
-      if (plegado) plegados.delete(grupo.clave); else plegados.add(grupo.clave);
-      guardarPlegados();
-      pintar();
-    };
-    cabecera.querySelector('input').onchange = (evento) => {
-      if (evento.target.checked) gruposOcultos.delete(grupo.clave);
-      else gruposOcultos.add(grupo.clave);
-      aplicarEstilos(items.map(efectivo));
-      simbologia.pintarLeyenda(items.map(efectivo));
-      pintar();
-    };
+  // De frente a fondo, como en QGIS: arriba en la lista es encima en el mapa.
+  for (const nodo of [...pila.arbol()].reverse()) {
+    if (nodo.hijos === null) {
+      const item = porClave.get(nodo.clave);
+      if (item) lista.appendChild(filaDe(item));
+      continue;
+    }
+    const cabecera = cabeceraDeGrupo(nodo, porClave);
+    if (!cabecera) continue;
     lista.appendChild(cabecera);
-
-    if (plegado) continue;
+    if (plegados.has(nodo.clave)) continue;
 
     const cuerpo = document.createElement('div');
     cuerpo.className = 'grupo-cuerpo';
-    if (!delGrupo.length) {
-      cuerpo.innerHTML = `<p class="vacio">${grupo.vacio}</p>`;
+    if (!nodo.hijos.length) {
+      cuerpo.innerHTML = '<p class="vacio">Grupo vacío. Añade capas desde sus opciones.</p>';
     } else {
-      // Dentro del grupo tambien se pinta de frente a fondo: arriba en la
-      // lista = encima en el mapa, como en QGIS o ArcGIS.
-      [...delGrupo].reverse().forEach((item, indice, arreglo) =>
-        cuerpo.appendChild(item.esExterna
-          ? pintarFilaExterna(item, indice, arreglo.length, apagado)
-          : pintarFila(item, indice, arreglo.length, apagado)));
+      for (const clave of [...nodo.hijos].reverse()) {
+        const item = porClave.get(clave);
+        if (item) cuerpo.appendChild(filaDe(item));
+      }
     }
     lista.appendChild(cuerpo);
   }
+}
+
+const filaDe = (item) => (item.esExterna ? pintarFilaExterna(item) : pintarFila(item));
+
+/** Cabecera de un grupo: plegar, encender todo, color, nombre y orden.
+ *
+ *  Sustituye a las cabeceras de categoria fijas que habia antes. La diferencia
+ *  es que estas las define el equipo, y por eso llevan tambien renombrar,
+ *  recolorear y disolver. */
+function cabeceraDeGrupo(nodo, porClave) {
+  const id = Number(nodo.clave.slice('grupo-'.length));
+  const grupo = pila.grupos().find((g) => g.id === id);
+  if (!grupo) return null;
+
+  const dentro = nodo.hijos.map((c) => porClave.get(c)).filter(Boolean);
+  const encendidas = dentro.filter((i) => i.visible).length;
+  const plegado = plegados.has(nodo.clave);
+
+  const cabecera = document.createElement('div');
+  cabecera.className = 'grupo-cabecera' + (plegado ? ' plegado' : '');
+  cabecera.innerHTML = `
+    <button class="chevron" aria-expanded="${!plegado}"
+            aria-label="${plegado ? 'Desplegar' : 'Plegar'} ${escapar(grupo.nombre)}">&#9662;</button>
+    <input type="checkbox" ${encendidas ? 'checked' : ''}
+           aria-label="Mostrar todo el grupo ${escapar(grupo.nombre)}">
+    <span class="punto-grupo" style="background:${escapar(grupo.color)}"></span>
+    <span class="titulo">${escapar(grupo.nombre)}</span>
+    <span class="conteo ${encendidas ? 'vivo' : ''}">${encendidas}/${dentro.length}</span>
+    <button class="icono" data-grupo="subir" ${pila.enElBorde(nodo.clave, 'subir') ? 'disabled' : ''}
+            title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
+    <button class="icono" data-grupo="bajar" ${pila.enElBorde(nodo.clave, 'bajar') ? 'disabled' : ''}
+            title="Enviar atrás" aria-label="Enviar atrás">&darr;</button>
+    <button class="icono" data-grupo="opciones" title="Renombrar, color o deshacer"
+            aria-label="Opciones del grupo">&#8943;</button>`;
+
+  cabecera.querySelector('.chevron').onclick = () => {
+    if (plegado) plegados.delete(nodo.clave); else plegados.add(nodo.clave);
+    guardarPlegados();
+    pintar();
+  };
+  cabecera.querySelector('input').onchange = async (evento) => {
+    const visible = evento.target.checked;
+    for (const item of dentro) await actualizar(item, { visible }, false);
+    pintar();
+  };
+  cabecera.querySelectorAll('[data-grupo]').forEach((control) => {
+    control.onclick = () => manejarGrupo(control.dataset.grupo, grupo, nodo);
+  });
+  return cabecera;
+}
+
+async function manejarGrupo(accion, grupo, nodo) {
+  try {
+    if (accion === 'subir' || accion === 'bajar') {
+      await pila.mover(nodo.clave, accion);
+    } else {
+      const que = prompt(
+        `Grupo "${grupo.nombre}".
+
+` +
+        'Escribe un nombre nuevo para renombrarlo,
+' +
+        'un color en formato #rrggbb para recolorearlo,
+' +
+        'o la palabra DISOLVER para deshacer el grupo (las capas no se borran).',
+        grupo.nombre);
+      if (!que || !que.trim()) return;
+      if (que.trim().toUpperCase() === 'DISOLVER') {
+        const salida = await pila.disolverGrupo(grupo.id);
+        avisar(`Grupo deshecho. ${salida.sueltas} capa(s) quedaron sueltas.`);
+      } else if (/^#[0-9a-f]{6}$/i.test(que.trim())) {
+        await pila.editarGrupo(grupo.id, { color: que.trim() });
+      } else {
+        await pila.editarGrupo(grupo.id, { nombre: que.trim() });
+      }
+    }
+    await cargar();
+  } catch (error) { avisar(error.message, true); }
 }
 
 /** Cuadrito de color de la fila. Con simbologia tematica se parte en tantas
@@ -240,12 +282,27 @@ function bloqueDescarga(item) {
     </div>`;
 }
 
-function pintarFila(item, indice, total, grupoApagado) {
+/** Selector para meter o sacar la capa de un grupo. Es la unica via: las
+ *  flechas mueven solo entre hermanas y nunca cruzan la frontera de un grupo,
+ *  para que subir una capa no la saque del sitio donde alguien la puso. */
+function selectorDeGrupo(item) {
+  const actual = pila.grupoDe(claveDePila(item));
+  return `
+    <label style="margin-top:8px">Grupo</label>
+    <select data-accion="grupo">
+      <option value="" ${actual === null ? 'selected' : ''}>(sin grupo)</option>
+      ${pila.grupos().map((g) => `
+        <option value="${g.id}" ${actual === g.id ? 'selected' : ''}>${escapar(g.nombre)}</option>`).join('')}
+      <option value="nuevo">+ Nuevo grupo…</option>
+    </select>`;
+}
+
+function pintarFila(item) {
   const clave = `${item.esRaster ? 'r' : 'c'}${item.id}`;
+  const clave2 = claveDePila(item);
   const estado = ESTADOS[item.estado];
   const fila = document.createElement('div');
-  fila.className = 'capa-fila' + (expandida === clave ? ' abierta' : '')
-                               + (grupoApagado ? ' atenuada' : '');
+  fila.className = 'capa-fila' + (expandida === clave ? ' abierta' : '');
 
   const abierta = expandida === clave;
   fila.classList.toggle('encendida', !!item.visible);
@@ -274,9 +331,10 @@ function pintarFila(item, indice, total, grupoApagado) {
               ? `<button class="estado aviso" data-accion="bandas"
                   title="El archivo no dice qué banda es cuál: orden supuesto.">bandas?</button>`
               : `<span class="conteo">${item.esRaster ? 'ráster' : item.total}</span>`}
-        <button class="icono" data-accion="subir"    ${indice === 0 ? 'disabled' : ''}
+        ${item.esRaster ? '<span class="estado tipo">img</span>' : ''}
+        <button class="icono" data-accion="subir" ${pila.enElBorde(clave2, 'subir') ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
-        <button class="icono" data-accion="bajar"    ${indice === total - 1 ? 'disabled' : ''}
+        <button class="icono" data-accion="bajar" ${pila.enElBorde(clave2, 'bajar') ? 'disabled' : ''}
                 title="Enviar atrás" aria-label="Enviar atrás">&darr;</button>
         <button class="icono chevron ${abierta ? 'abierto' : ''}" data-accion="expandir"
                 title="${abierta ? 'Cerrar opciones' : 'Abrir opciones'}"
@@ -315,6 +373,7 @@ function pintarFila(item, indice, total, grupoApagado) {
                 </span>`).join('')}
               ${entradas.length > 8 ? `<span class="par-leyenda">y ${entradas.length - 8} más</span>` : ''}
             </div>` : ''}`}
+        ${selectorDeGrupo(item)}
         <div class="fila" style="margin-top:8px">
           <button data-accion="encuadrar">Ir a la capa</button>
           <button data-accion="renombrar">Renombrar</button>
@@ -326,7 +385,20 @@ function pintarFila(item, indice, total, grupoApagado) {
 
   fila.querySelectorAll('[data-accion]').forEach((control) => {
     const accion = control.dataset.accion;
-    if (accion === 'opacidad') {
+    if (accion === 'grupo') {
+      control.onchange = async (e) => {
+        try {
+          let destino = e.target.value === '' ? null : e.target.value;
+          if (destino === 'nuevo') {
+            const nombre = prompt('Nombre del grupo nuevo:', 'Grupo');
+            if (!nombre || !nombre.trim()) { pintar(); return; }
+            destino = (await pila.crearGrupo(nombre.trim(), '#8d99ae')).id;
+          }
+          await pila.agrupar(claveDePila(item), destino === null ? null : Number(destino));
+          await cargar();
+        } catch (error) { avisar(error.message, true); pintar(); }
+      };
+    } else if (accion === 'opacidad') {
       control.oninput = (e) => {
         const valor = Number(e.target.value) / 100;
         item.opacidad = valor;
@@ -371,11 +443,11 @@ function pintarFila(item, indice, total, grupoApagado) {
  * en su lugar aparece lo unico que si es una decision del equipo: congelar una
  * copia fechada.
  */
-function pintarFilaExterna(item, indice, total, grupoApagado) {
+function pintarFilaExterna(item) {
   const clave = `x${item.id}`;
+  const clave2 = claveDePila(item);
   const fila = document.createElement('div');
-  fila.className = 'capa-fila externa' + (expandida === clave ? ' abierta' : '')
-                                       + (grupoApagado ? ' atenuada' : '');
+  fila.className = 'capa-fila externa' + (expandida === clave ? ' abierta' : '');
   const abierta = expandida === clave;
   fila.classList.toggle('encendida', !!item.visible);
 
@@ -396,10 +468,11 @@ function pintarFilaExterna(item, indice, total, grupoApagado) {
                 title="${escapar(item.fuente.organizacion)} — opciones">
           ${escapar(item.nombre)}
         </button>
+        <span class="estado tipo">ext</span>
         <span class="conteo">${escapar(conteo)}</span>
-        <button class="icono" data-accion="subir" ${indice === 0 ? 'disabled' : ''}
+        <button class="icono" data-accion="subir" ${pila.enElBorde(clave2, 'subir') ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
-        <button class="icono" data-accion="bajar" ${indice === total - 1 ? 'disabled' : ''}
+        <button class="icono" data-accion="bajar" ${pila.enElBorde(clave2, 'bajar') ? 'disabled' : ''}
                 title="Enviar atrás" aria-label="Enviar atrás">&darr;</button>
         <button class="icono chevron ${abierta ? 'abierto' : ''}" data-accion="expandir"
                 title="${abierta ? 'Cerrar opciones' : 'Abrir opciones'}"
@@ -424,6 +497,7 @@ function pintarFilaExterna(item, indice, total, grupoApagado) {
                 ${escapar(f.etiqueta)}
               </span>`).join('')}
           </div>` : ''}
+        ${selectorDeGrupo(item)}
         <div class="fila" style="margin-top:8px">
           <button data-accion="encuadrar">Ir a la capa</button>
           <a class="boton-enlace" href="${escapar(item.fuente.url)}"
@@ -445,13 +519,28 @@ function pintarFilaExterna(item, indice, total, grupoApagado) {
 
   fila.querySelectorAll('[data-accion]').forEach((control) => {
     const accion = control.dataset.accion;
-    if (accion === 'opacidad') {
+    if (accion === 'grupo') {
+      control.onchange = async (e) => {
+        try {
+          let destino = e.target.value === '' ? null : e.target.value;
+          if (destino === 'nuevo') {
+            const nombre = prompt('Nombre del grupo nuevo:', 'Grupo');
+            if (!nombre || !nombre.trim()) { pintar(); return; }
+            destino = (await pila.crearGrupo(nombre.trim(), '#8d99ae')).id;
+          }
+          await pila.agrupar(claveDePila(item), destino === null ? null : Number(destino));
+          await cargar();
+        } catch (error) { avisar(error.message, true); pintar(); }
+      };
+    } else if (accion === 'opacidad') {
       control.oninput = (e) => {
         item.opacidad = Number(e.target.value) / 100;
         fila.querySelector('output').textContent = `${e.target.value}%`;
         aplicarEstilos([efectivo(item)]);
       };
-      control.onchange = (e) => externas.fijar(item.id, { opacidad: Number(e.target.value) / 100 });
+      control.onchange = (e) => externas
+        .fijar(item.id, { opacidad: Number(e.target.value) / 100 })
+        .catch((error) => avisar(error.message, true));
     } else {
       control.onclick = () => manejarExterna(accion, item, clave);
     }
@@ -464,7 +553,8 @@ async function manejarExterna(accion, item, clave) {
   switch (accion) {
     case 'ver':
       item.visible = !item.visible;
-      externas.fijar(item.id, { visible: item.visible });
+      externas.fijar(item.id, { visible: item.visible })
+        .catch((error) => avisar(error.message, true));
       aplicarEstilos([efectivo(item)]);
       simbologia.pintarLeyenda(items.map(efectivo));
       pintar();
@@ -477,7 +567,8 @@ async function manejarExterna(accion, item, clave) {
 
     case 'subir':
     case 'bajar':
-      await externas.mover(item.id, accion === 'subir' ? 1 : -1);
+      await pila.mover(claveDePila(item), accion);
+      await cargar();
       break;
 
     case 'encuadrar':
@@ -599,7 +690,8 @@ async function manejar(accion, item, clave) {
 
     case 'subir':
     case 'bajar':
-      await intercambiar(item, accion === 'subir' ? 1 : -1);
+      await pila.mover(claveDePila(item), accion);
+      await cargar();
       break;
   }
 }
@@ -652,42 +744,23 @@ async function descargarRaster(item) {
     `Descargando "${item.nombre}"${peso ? ` (${peso})` : ''}. Puede tardar un rato.`);
 }
 
-/** Intercambia el orden con la capa vecina DENTRO de su grupo.
- *  Solo dos peticiones, no toda la lista. */
-async function intercambiar(item, direccion) {
-  const hermanas = items.filter((i) => grupoDe(i) === grupoDe(item));
-  const posicion = hermanas.findIndex((i) => i.id === item.id);
-  const vecina = hermanas[posicion + direccion];
-  if (!vecina) return;   // ya esta en el borde de su grupo
-
-  const ordenItem = item.orden ?? posicion + 1;
-  const ordenVecina = vecina.orden ?? posicion + 1 + direccion;
-
-  try {
-    await Promise.all([
-      api(`/api/${item.esRaster ? 'rasters' : 'capas'}/${item.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orden: ordenVecina }),
-      }),
-      api(`/api/${vecina.esRaster ? 'rasters' : 'capas'}/${vecina.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orden: ordenItem }),
-      }),
-    ]);
-    await cargar();
-  } catch (error) { avisar(error.message, true); }
-}
-
 async function actualizar(item, cambios, recargar = true) {
   Object.assign(item, cambios);
   aplicarEstilos([efectivo(item)]);
   if ('visible' in cambios) simbologia.pintarLeyenda(items.map(efectivo));
   try {
-    await api(`/api/${item.esRaster ? 'rasters' : 'capas'}/${item.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cambios),
-    });
+    // Una externa guarda su estado en otro sitio. Importa porque la casilla
+    // de un grupo llama aqui para todo lo que tenga dentro, y un grupo puede
+    // mezclar dibujo, imagen y fuente externa.
+    if (item.esExterna) {
+      await externas.fijar(item.id, cambios);
+    } else {
+      await api(`/api/${item.esRaster ? 'rasters' : 'capas'}/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cambios),
+      });
+    }
     // El color ya no obliga a recargar: se aplica en el estilo del mapa, no
     // viene dentro de la tesela.
     if (recargar && 'nombre' in cambios) await cargar();

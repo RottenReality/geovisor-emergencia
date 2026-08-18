@@ -1191,3 +1191,28 @@ table.atributos code {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* --- Grupos de capas ------------------------------------------------------ */
+/* El grupo lo define el equipo, no el visor: por eso su cabecera lleva color y
+   opciones, cosa que las categorias fijas de antes no necesitaban. */
+.punto-grupo {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.grupo-cuerpo {
+  padding-left: 9px;
+  margin-left: 5px;
+  border-left: 1px solid var(--borde);
+}
+
+/* Chip de tipo. Con las capas ya intercaladas, el borde punteado de una
+   externa se compara mal contra una vecina que puede no estar al lado. */
+.estado.tipo {
+  padding: 1px 4px;
+  border: 1px solid var(--borde);
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}

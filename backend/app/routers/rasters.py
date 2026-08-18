@@ -79,11 +79,12 @@ async def _resolver_ruta_teselas() -> str:
 _cliente = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
 
 
+# Sin `orden`: el orden lo manda la tabla `pila`, no esta. Dejarlo aqui
+# aceptando escrituras dejaria dos fuentes de verdad sobre lo mismo.
 class RasterParche(BaseModel):
     nombre: str | None = None
     visible: bool | None = None
     opacidad: float | None = Field(default=None, ge=0, le=1)
-    orden: int | None = None
     combinacion: str | None = None
 
 

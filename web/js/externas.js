@@ -8,11 +8,14 @@
  * cierra. Solo lo que alguien encendio ocupa sitio en el panel, y ahi se
  * comporta como cualquier otra capa (ver, opacidad, orden, ir a la capa).
  *
- * Que este encendido se guarda en ESTE navegador, no en el servidor. Encender
- * una fuente externa es mirar, no decidir: cada quien explora las que le
- * sirven sin cambiarle el mapa al resto. Lo que si es una decision de equipo
- * -guardar una copia fechada como capa propia- tiene su propio boton y esa si
- * la ve todo el mundo.
+ * Encender una fuente la publica en el mapa del EQUIPO, no solo en este
+ * navegador: entra en la pila como cualquier otra capa y se ordena con ellas.
+ * Antes era al reves y se guardaba aqui, pero eso hacia imposible poner una
+ * externa suelta debajo de un grupo -no habia una sola escala de orden-, y ese
+ * caso resulto ser justo el que el equipo necesitaba.
+ *
+ * Quitarla se la quita a todos, y va sin confirmacion a proposito: el panel es
+ * del equipo y volver a encenderla son dos clics.
  */
 
 import { api, avisar, escapar, $ } from './util.js';
@@ -28,12 +31,9 @@ let alCambiar = () => {};
 let globo = null;         // popup abierto sobre el mapa
 let filtro = '';          // texto del buscador del catalogo
 
-const LLAVE = 'geovisor.externas';
-
-/** {clave: {visible, opacidad, orden}} de las fuentes encendidas. */
+/** {clave: {visible, opacidad}} de las fuentes publicadas. Llega del servidor.
+ *  El ORDEN no esta aqui: lo manda la pila, que es comun a todo el equipo. */
 let encendidas = {};
-try { encendidas = JSON.parse(localStorage.getItem(LLAVE) || '{}'); } catch { encendidas = {}; }
-const guardar = () => localStorage.setItem(LLAVE, JSON.stringify(encendidas));
 
 /** Cuantos elementos trajo la ultima descarga, por clave. */
 const totales = {};
@@ -64,24 +64,24 @@ export function items() {
         estilo: fuente.simbologia || null,
         visible: estado.visible !== false,
         opacidad: estado.opacidad ?? 1,
-        orden: estado.orden ?? 0,
         bounds: fuente.bounds || null,
         total: totales[clave] ?? fuente.total,
         sinUbicacion: sinUbicacion[clave] ?? fuente.sin_ubicacion ?? 0,
         fuente,
       };
     })
-    .filter(Boolean)
-    .sort((a, b) => a.orden - b.orden);
+    .filter(Boolean);
 }
 
-export function fijar(clave, cambios) {
+export async function fijar(clave, cambios) {
   if (!encendidas[clave]) return;
   Object.assign(encendidas[clave], cambios);
-  guardar();
+  await api(`/api/externas/${clave}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cambios),
+  });
 }
-
-const ordenes = () => Object.values(encendidas).map((e) => e.orden ?? 0);
 
 /**
  * Enciende una fuente y la deja lista en el panel.
@@ -95,45 +95,35 @@ const ordenes = () => Object.values(encendidas).map((e) => e.orden ?? 0);
  * Las ortoimagenes entran al fondo y los vectores al frente, que es el orden
  * en que se miran: los puntos sobre la imagen, nunca debajo.
  */
+/** Descarga el vector antes de montarlo. Cuesta una peticion que MapLibre
+ *  despues reaprovecha de su cache, y a cambio se sabe en el acto cuantos
+ *  elementos trajo y si la fuente esta caida. */
+async function precargar(fuente) {
+  if (fuente.tipo === 'imagen') return;
+  const datos = await api(`/api/externas/${fuente.clave}.geojson`);
+  totales[fuente.clave] = datos.features.length;
+  sinUbicacion[fuente.clave] = datos.sin_ubicacion || 0;
+}
+
 export async function encender(clave) {
   const fuente = fuenteDe(clave);
   if (!fuente) return;
-
-  if (fuente.tipo !== 'imagen') {
-    const datos = await api(`/api/externas/${clave}.geojson`);
-    totales[clave] = datos.features.length;
-    sinUbicacion[clave] = datos.sin_ubicacion || 0;
+  if (!encendidas[clave]) {
+    await api(`/api/externas/${clave}/encender`, { method: 'POST' });
+    encendidas[clave] = { visible: true, opacidad: 1 };
   }
-
-  const orden = fuente.tipo === 'imagen'
-    ? Math.min(0, ...ordenes()) - 1
-    : Math.max(0, ...ordenes()) + 1;
-  encendidas[clave] = { visible: true, opacidad: 1, orden };
-  guardar();
+  await precargar(fuente);
   await alCambiar();
 }
 
 export async function apagar(clave) {
+  await api(`/api/externas/${clave}`, { method: 'DELETE' });
   delete encendidas[clave];
-  guardar();
   await alCambiar();
   cerrarGlobo();
 }
 
 export const estaEncendida = (clave) => clave in encendidas;
-
-/** Intercambia el orden con la fuente vecina del grupo. */
-export async function mover(clave, direccion) {
-  const orden = items();
-  const posicion = orden.findIndex((i) => i.id === clave);
-  const vecina = orden[posicion + direccion];
-  if (!vecina) return;
-  const mio = encendidas[clave].orden ?? 0;
-  encendidas[clave].orden = encendidas[vecina.id].orden ?? 0;
-  encendidas[vecina.id].orden = mio;
-  guardar();
-  await alCambiar();
-}
 
 // ---------------------------------------------------------------------------
 // Arranque
@@ -142,9 +132,16 @@ export async function inicializar(alCambiarCapas) {
   alCambiar = alCambiarCapas;
   $('externas').onclick = abrir;
   $('externas-cerrar').onclick = cerrar;
-  // Si el navegador venia con fuentes encendidas hay que tener el catalogo
-  // antes de pintar el panel, o no se sabria ni como se llaman.
-  if (Object.keys(encendidas).length) await cargarCatalogo();
+  // Hace falta SIEMPRE: que fuentes estan publicadas lo dice el servidor y
+  // viene dentro del propio catalogo. Antes salia del localStorage y bastaba
+  // con pedirlo si habia alguna encendida.
+  await cargarCatalogo();
+  encendidas = Object.fromEntries((catalogo?.publicadas || []).map(
+    (p) => [p.clave, { visible: p.visible, opacidad: p.opacidad }]));
+  // Los vectores ya publicados se descargan ahora, para que el panel pueda
+  // decir cuantos elementos traen sin esperar a que alguien los abra.
+  await Promise.all(Object.keys(encendidas).map(
+    (clave) => { const f = fuenteDe(clave); return f ? precargar(f).catch(() => {}) : null; }));
 }
 
 async function cargarCatalogo(forzar = false) {

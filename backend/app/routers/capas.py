@@ -29,12 +29,13 @@ class CapaEntrada(BaseModel):
     color: str = "#e63946"
 
 
+# Sin `orden`: el orden lo manda la tabla `pila`, no esta. Dejarlo aqui
+# aceptando escrituras dejaria dos fuentes de verdad sobre lo mismo.
 class CapaParche(BaseModel):
     nombre: str | None = None
     color: str | None = None
     visible: bool | None = None
     opacidad: float | None = Field(default=None, ge=0, le=1)
-    orden: int | None = None
 
 
 class EstiloEntrada(BaseModel):
