@@ -429,6 +429,12 @@ function pintarFilaExterna(item, indice, total, grupoApagado) {
           <a class="boton-enlace" href="${escapar(item.fuente.url)}"
              target="_blank" rel="noopener">Ver el servicio</a>
         </div>
+        ${item.fuente.formulario ? `
+          <a class="boton-enlace" style="margin-top:8px"
+             href="${escapar(item.fuente.formulario)}" target="_blank" rel="noopener"
+             title="Abre el formulario de captura en una pestaña nueva">
+            &#10010; Nueva evaluación
+          </a>` : ''}
         ${item.esImagen ? '' : `
           <button data-accion="copiar" style="width:100%;margin-top:8px">
             Guardar copia fechada como capa

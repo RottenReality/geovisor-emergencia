@@ -118,7 +118,11 @@ export function leyendaDe(item) {
     return orden.map((valor) => ({
       valor,
       color: (e.colores || {})[valor] || item.color,
-      etiqueta: valor,
+      // Hay fuentes que clasifican por codigo ("h", "i2"). Si el catalogo trae
+      // como se llama cada uno, manda el nombre: la leyenda es para leerla en
+      // campo, no con el manual del formato al lado. El filtro sigue casando
+      // contra `valor`, que es lo que trae el dato.
+      etiqueta: e.etiquetas?.[valor] ?? valor,
     }));
   }
 

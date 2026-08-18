@@ -81,6 +81,10 @@ class Fuente:
     tolerancia: float = 0.0
     naturaleza: str = ""        # dinamica | semi-estatica | estatica
     simbologia: dict | None = None
+    # Formulario de captura de la fuente, si lo tiene. Cuando esta puesto, la
+    # capa ofrece abrirlo: quien consulta el dato en el visor suele ser quien
+    # lo levanta en la calle, y tener el enlace ahi ahorra ir a buscarlo.
+    formulario: str = ""            # URL publica del formulario de captura
     # Solo para tipo 'lista'
     lista: str = ""             # ruta al arreglo dentro del JSON ('' = raiz)
     lat: str = "lat"
@@ -103,6 +107,32 @@ GRADO_EMS = {
     "Negligible to slight damage": "#ffd166",
     "No visible damage": "#7cb518",
     "Not Applicable": "#8d99ae",
+}
+
+# Criterio de habitabilidad del EDE (Evaluacion de Danos en Edificaciones).
+# Es la conclusion de la inspeccion y se comunica como un semaforo: verde se
+# sigue usando, amarillo se entra con restriccion, rojo no se entra. Se
+# conservan los seis codigos en vez de agruparlos en tres familias porque el
+# formato los distingue, y dentro del rojo el grado es justo lo que ordena a
+# quien tiene que decidir por donde empezar.
+HABITABILIDAD_EDE = {
+    "h":  "#1a9641",
+    "r1": "#ffd166",
+    "r2": "#f4a261",
+    "i1": "#e63946",
+    "i2": "#c1121f",
+    "i3": "#8c0d10",
+}
+
+# El servicio entrega el codigo crudo. Sin esto la leyenda dice "h" e "i2",
+# que no significan nada sin el manual del formato delante.
+HABITABILIDAD_ETIQUETAS = {
+    "h":  "Habitable",
+    "r1": "Acceso restringido (R1)",
+    "r2": "Acceso restringido (R2)",
+    "i1": "Inhabitable (I1)",
+    "i2": "Inhabitable (I2)",
+    "i3": "Inhabitable (I3)",
 }
 
 DRP = "https://services.arcgis.com/vC1CdlKWEAtuT38d/arcgis/rest/services/"
@@ -132,6 +162,37 @@ CATALOGO: tuple[Fuente, ...] = (
     _orto("Jamundí", "ortoJamundi", "jamundi"),
 
     # -- Danos --------------------------------------------------------------
+    Fuente(
+        clave="ungrd-ede",
+        nombre="Matriz EDE · evaluación de edificaciones",
+        organizacion="Unidad de Gestión del Riesgo",
+        tema="dano",
+        tipo="arcgis",
+        url="https://services6.arcgis.com/EF6OTqvE0RxR2jwj/arcgis/rest/services/"
+            "service_d108cb3c79e242eabe99b458798936d1/FeatureServer/0",
+        # Sin contacto_nombre, contacto_tel, contacto_email, nombre_evaluador,
+        # matricula_profesional ni codigo_predial: ver cabecera. Si quedan la
+        # direccion, el barrio y el nombre del inmueble, porque una evaluacion
+        # que no se puede volver a encontrar en la calle no sirve para nada.
+        campos=("nombre_edif", "barrio", "direccion",
+                "habitabilidad_final", "nivel_dano_final", "severidad_final",
+                "afectacion_planta", "uso_edif", "pisos_sobre", "ocupantes",
+                "sis_estructural_p", "material_p", "epoca_const_p", "acceso",
+                "recomendaciones_p", "eval_adicional_p", "observaciones_generales",
+                "fecha_inspeccion", "EditDate"),
+        titulo="nombre_edif",
+        color="#d7191c",
+        minutos=5,
+        naturaleza="dinamica",
+        formulario="https://survey123.arcgis.com/share/042e021e34e349ddadf738270674dcc9",
+        nota="Inspección oficial en campo, con el criterio de habitabilidad del formato "
+             "EDE. El servicio acepta escritura pública —es lo que permite capturar sin "
+             "cuenta—, así que un registro suelto no es dato firme hasta contrastarlo.",
+        simbologia={"campo": "habitabilidad_final", "modo": "categorias",
+                    "colores": HABITABILIDAD_EDE,
+                    "etiquetas": HABITABILIDAD_ETIQUETAS,
+                    "orden": ["h", "r1", "r2", "i1", "i2", "i3"]},
+    ),
     Fuente(
         clave="copernicus-grading",
         nombre="Grading Copernicus · puntos verificados",

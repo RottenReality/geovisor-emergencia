@@ -357,6 +357,7 @@ def _ficha(fuente: fuentes.Fuente) -> dict:
         "nota": fuente.nota,
         "naturaleza": fuente.naturaleza,
         "motivo": fuente.motivo,
+        "formulario": fuente.formulario,
         "simbologia": fuente.simbologia,
         "minutos": fuente.minutos,
         # Lo ya descargado, para que el catalogo pueda decir cuantas hay y de
