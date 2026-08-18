@@ -433,7 +433,7 @@ function pintarFilaExterna(item, indice, total, grupoApagado) {
           <a class="boton-enlace" style="margin-top:8px"
              href="${escapar(item.fuente.formulario)}" target="_blank" rel="noopener"
              title="Abre el formulario de captura en una pestaña nueva">
-            &#10010; Nueva evaluación
+            &#10010; Llenar el formulario
           </a>` : ''}
         ${item.esImagen ? '' : `
           <button data-accion="copiar" style="width:100%;margin-top:8px">

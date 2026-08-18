@@ -255,6 +255,10 @@ function filaFuente(fuente) {
       <span class="marca-org">${escapar(fuente.organizacion)}</span>
       ${integrable ? `<span class="conteo">${escapar(pista(fuente))}</span>` : ''}
       ${fuente.nota ? `<p class="nota">${escapar(fuente.nota)}</p>` : ''}
+      ${fuente.formulario ? `
+        <a class="enlace" href="${escapar(fuente.formulario)}" target="_blank" rel="noopener"
+           title="Abre el formulario de captura en una pestaña nueva">
+          &#10010; Llenar el formulario</a>` : ''}
       ${fuente.motivo ? `
         <p class="nota aviso-tema">
           ${escapar(fuente.motivo)}

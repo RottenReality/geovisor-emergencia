@@ -186,8 +186,8 @@ CATALOGO: tuple[Fuente, ...] = (
         naturaleza="dinamica",
         formulario="https://survey123.arcgis.com/share/042e021e34e349ddadf738270674dcc9",
         nota="Inspección oficial en campo, con el criterio de habitabilidad del formato "
-             "EDE. El servicio acepta escritura pública —es lo que permite capturar sin "
-             "cuenta—, así que un registro suelto no es dato firme hasta contrastarlo.",
+             "EDE. El servicio acepta escritura pública, así que un registro suelto no es "
+             "dato firme hasta contrastarlo.",
         simbologia={"campo": "habitabilidad_final", "modo": "categorias",
                     "colores": HABITABILIDAD_EDE,
                     "etiquetas": HABITABILIDAD_ETIQUETAS,
