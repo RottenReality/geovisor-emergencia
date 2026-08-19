@@ -204,12 +204,9 @@ async function manejarGrupo(accion, grupo, nodo) {
       const que = prompt(
         `Grupo "${grupo.nombre}".
 
-` +
-        'Escribe un nombre nuevo para renombrarlo,
-' +
-        'un color en formato #rrggbb para recolorearlo,
-' +
-        'o la palabra DISOLVER para deshacer el grupo (las capas no se borran).',
+Escribe un nombre nuevo para renombrarlo,
+un color en formato #rrggbb para recolorearlo,
+o la palabra DISOLVER para deshacer el grupo (las capas no se borran).`,
         grupo.nombre);
       if (!que || !que.trim()) return;
       if (que.trim().toUpperCase() === 'DISOLVER') {

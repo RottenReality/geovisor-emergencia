@@ -593,13 +593,12 @@ async def editar(id_raster: int, parche: RasterParche):
           nombre      = COALESCE($2, nombre),
           visible     = COALESCE($3, visible),
           opacidad    = COALESCE($4, opacidad),
-          orden       = COALESCE($5, orden),
-          combinacion = COALESCE($6, combinacion)
+          combinacion = COALESCE($5, combinacion)
         WHERE id = $1
         RETURNING id, nombre, visible, opacidad, orden, combinacion
         """,
         id_raster, parche.nombre, parche.visible, parche.opacidad,
-        parche.orden, parche.combinacion,
+        parche.combinacion,
     )
     if fila is None:
         raise HTTPException(status_code=404, detail="Raster no encontrado")

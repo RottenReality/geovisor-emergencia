@@ -100,12 +100,11 @@ async def editar(id_capa: int, parche: CapaParche):
           nombre   = COALESCE($2, nombre),
           color    = COALESCE($3, color),
           visible  = COALESCE($4, visible),
-          opacidad = COALESCE($5, opacidad),
-          orden    = COALESCE($6, orden)
+          opacidad = COALESCE($5, opacidad)
         WHERE id = $1
         RETURNING id, nombre, color, visible, opacidad, orden
         """,
-        id_capa, parche.nombre, parche.color, parche.visible, parche.opacidad, parche.orden,
+        id_capa, parche.nombre, parche.color, parche.visible, parche.opacidad,
     )
     if fila is None:
         raise HTTPException(status_code=404, detail="Capa no encontrada")

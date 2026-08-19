@@ -83,18 +83,6 @@ export async function fijar(clave, cambios) {
   });
 }
 
-/**
- * Enciende una fuente y la deja lista en el panel.
- *
- * Los vectores se descargan aqui, antes de montarlos en el mapa. Cuesta una
- * peticion que MapLibre despues reaprovecha de la cache del navegador, y a
- * cambio pasan dos cosas que importan: se sabe en el acto cuantos elementos
- * trajo, y si la fuente esta caida el equipo se entera al hacer clic en vez de
- * quedarse mirando un mapa donde no aparece nada.
- *
- * Las ortoimagenes entran al fondo y los vectores al frente, que es el orden
- * en que se miran: los puntos sobre la imagen, nunca debajo.
- */
 /** Descarga el vector antes de montarlo. Cuesta una peticion que MapLibre
  *  despues reaprovecha de su cache, y a cambio se sabe en el acto cuantos
  *  elementos trajo y si la fuente esta caida. */
