@@ -167,6 +167,19 @@
   <div id="ficha-cuerpo"></div>
 </aside>
 
+<!-- Ir a unas coordenadas. Va despues de la ficha a proposito: asi el CSS puede
+     apartarla cuando la ficha se abre, con el selector de hermano. -->
+<div id="ir-a">
+  <div class="ir-a-fila">
+    <input type="search" id="ir-a-texto" placeholder="3.4516, -76.5320"
+           aria-label="Ir a unas coordenadas" autocomplete="off" spellcheck="false">
+    <button id="ir-a-buscar">Ir</button>
+    <button class="icono" id="ir-a-quitar" title="Quitar el marcador"
+            aria-label="Quitar el marcador" hidden>&times;</button>
+  </div>
+  <div id="ir-a-nota" hidden></div>
+</div>
+
 <!-- Medicion en vivo -->
 <div id="medicion" aria-live="polite">
   <div class="dato">

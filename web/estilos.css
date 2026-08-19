@@ -581,6 +581,42 @@ table.atributos code {
 .ficha-acciones { margin-top: 18px; }
 .ficha-acciones .peligro { margin-top: 0; }
 
+/* --- Ir a unas coordenadas ---------------------------------------------- */
+#ir-a {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  /* Por debajo de la ficha (12) a proposito: cuando la ficha se abre, la barra
+     no se le monta encima, se aparta con la regla de abajo. */
+  z-index: 11;
+  width: min(290px, calc(100vw - 20px));
+  padding: 6px;
+  background: rgba(14, 19, 25, .92);
+  border: 1px solid var(--borde);
+  border-radius: 5px;
+  backdrop-filter: blur(6px);
+  transition: right .18s ease;
+}
+#ficha.visible ~ #ir-a { right: calc(var(--ficha) + 10px); }
+
+.ir-a-fila { display: flex; gap: 6px; }
+#ir-a-texto { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; }
+#ir-a-buscar { flex: 0 0 auto; }
+#ir-a-quitar { flex: 0 0 auto; width: 28px; padding: 0; }
+
+#ir-a-nota {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--foco);
+}
+#ir-a-nota[hidden] { display: none; }
+#ir-a-nota button { width: 100%; margin-top: 5px; font-family: var(--mono); }
+
+/* Globo del marcador: las cifras en monoespaciada, que se leen para copiarlas. */
+.globo-coord { font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.globo-coord .rotulo { color: var(--papel-2); font-family: var(--sans); }
+
 /* --- Medicion en vivo --------------------------------------------------- */
 #medicion {
   position: absolute;
@@ -1147,7 +1183,10 @@ table.atributos code {
 }
 #rail.oculto ~ #alternar { left: 12px; }
 
-.maplibregl-ctrl-top-right { margin-top: 6px; }
+/* Los botones de zoom bajan para dejar sitio a la barra de coordenadas, y algo
+   mas cuando la barra despliega un aviso. */
+.maplibregl-ctrl-top-right { margin-top: 54px; transition: margin-top .15s ease; }
+body.con-nota .maplibregl-ctrl-top-right { margin-top: 124px; }
 
 /* --- Movil: rail y ficha pasan a hoja inferior -------------------------- */
 @media (max-width: 720px) {
@@ -1173,6 +1212,10 @@ table.atributos code {
   }
 
   #medicion, #rail.oculto ~ #medicion { left: 50%; bottom: calc(66vh + 12px); }
+
+  /* Aqui la ficha es una hoja que sube desde abajo, asi que no tapa la esquina
+     y la barra de coordenadas se queda donde esta. */
+  #ficha.visible ~ #ir-a { right: 10px; }
   #rail.oculto ~ #medicion { bottom: 64px; }
   #coordenadas, #rail.oculto ~ #coordenadas { left: 10px; bottom: calc(66vh + 12px); }
   #rail.oculto ~ #coordenadas { bottom: 10px; }

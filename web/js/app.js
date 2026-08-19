@@ -1,6 +1,6 @@
 /* Orquestador del visor. */
 
-import { api, avisar, escapar, descargarArchivo, $ } from './util.js';
+import { api, avisar, escapar, descargarArchivo, numero, $ } from './util.js';
 import {
   mapa, inicializarFuentes, capasConsultables, refrescarDatos, refrescarExternas,
   cambiarBase, baseGuardada, irA, seguirCursor,
@@ -15,6 +15,8 @@ import * as bandas from './bandas.js';
 import * as externas from './externas.js';
 import * as tabla from './tabla.js';
 import { PRIORITARIAS, RESTO, COLOMBIA } from './ciudades.js';
+import * as coordenadas from './coordenadas.js';
+import { a9377 } from './proyeccion.js';
 
 // ---------------------------------------------------------------------------
 // Arranque
@@ -100,6 +102,81 @@ function montarCiudades() {
   };
 }
 montarCiudades();
+
+// ---------------------------------------------------------------------------
+// Ir a unas coordenadas
+// ---------------------------------------------------------------------------
+// El marcador es de esta pestana y de este momento: no se guarda ni lo ve
+// nadie mas. Para dejar constancia de un sitio estan las capas de dibujo.
+let marcador = null;
+
+function quitarMarcador() {
+  marcador?.remove();
+  marcador = null;
+  $('ir-a-quitar').hidden = true;
+}
+
+function marcar(lat, lon) {
+  quitarMarcador();
+  const { este, norte } = a9377(lon, lat);
+  // Una linea por dato: juntando el Este y el Norte, el globo parte la cifra
+  // en dos renglones y deja de poderse leer de un vistazo.
+  const globo = new maplibregl.Popup({ offset: 28, closeButton: false, maxWidth: '280px' })
+    .setHTML(`
+      <div class="globo-coord">
+        <div><span class="rotulo">WGS84</span> ${lat.toFixed(6)}, ${lon.toFixed(6)}</div>
+        <div><span class="rotulo">9377 E</span> ${numero(este, 1)}</div>
+        <div><span class="rotulo">9377 N</span> ${numero(norte, 1)}</div>
+      </div>`);
+
+  marcador = new maplibregl.Marker({ color: '#ffd166' })
+    .setLngLat([lon, lat])
+    .setPopup(globo)
+    .addTo(mapa);
+  marcador.togglePopup();
+
+  mapa.flyTo({ center: [lon, lat], zoom: 17, speed: 1.6 });
+  $('ir-a-quitar').hidden = false;
+}
+
+/** Aviso propio de la barra, para lo que necesita un boton y no cabe en un toast. */
+function anotar(html) {
+  const nota = $('ir-a-nota');
+  nota.innerHTML = html;
+  nota.hidden = !html;
+  // Al crecer la barra taparia los botones de zoom, que estan dentro del mapa
+  // y no se pueden alcanzar con un selector desde aqui. La marca va al body.
+  document.body.classList.toggle('con-nota', !!html);
+}
+
+function irACoordenadas() {
+  anotar('');
+  const leido = coordenadas.interpretar($('ir-a-texto').value);
+  if (leido.vacio) return;
+  if (leido.error) { anotar(escapar(leido.error)); return; }
+
+  marcar(leido.lat, leido.lon);
+
+  if (leido.invertible) {
+    // Poner la latitud donde va la longitud es el error mas comun al copiar,
+    // y se corrige solo: se ofrece hecho en vez de limitarse a rechazar.
+    const alReves = `${leido.lon}, ${leido.lat}`;
+    anotar(`Ese punto cae fuera de Colombia.
+            <button type="button" id="ir-a-invertir">¿Querías ${escapar(alReves)}?</button>`);
+    $('ir-a-invertir').onclick = () => {
+      $('ir-a-texto').value = alReves;
+      irACoordenadas();
+    };
+  } else if (leido.fuera) {
+    anotar('Marcado, pero queda fuera de Colombia.');
+  }
+}
+
+$('ir-a-buscar').onclick = irACoordenadas;
+$('ir-a-texto').onkeydown = (evento) => {
+  if (evento.key === 'Enter') irACoordenadas();
+};
+$('ir-a-quitar').onclick = () => { quitarMarcador(); anotar(''); };
 
 // ---------------------------------------------------------------------------
 // Mapas base
