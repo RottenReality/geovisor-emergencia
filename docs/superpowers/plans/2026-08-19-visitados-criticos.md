@@ -597,8 +597,18 @@ VISITADOS_CLAVE='la-contrasena-del-portal'
 
 - [ ] **Paso 3: Comprobar que no se ha colado ninguna credencial real**
 
-Ejecutar: `git diff --cached; grep -rn "CORREO_DEL_ENV" --exclude-dir=.git .`
-Esperado: sin resultados en archivos versionados. `.env` está en `.gitignore` y solo existe en la VPS.
+Ejecutar:
+
+```bash
+# El patron se saca del .env del servidor y NUNCA se escribe aqui: un documento
+# que enumera las credenciales para comprobar que no estan en el repo acaba de
+# meterlas en el repo. (Paso aprendido a base de cometerlo.)
+ssh root@5.161.176.32 "grep -oP \"^VISITADOS_\w+='?\K[^']+\" /opt/geovisor/.env" > /tmp/secretos.txt
+git diff --cached | grep -Ff /tmp/secretos.txt && echo "FUGA" || echo "limpio"
+rm -f /tmp/secretos.txt
+```
+
+Esperado: `limpio`. `.env` está en `.gitignore` y solo existe en la VPS.
 
 - [ ] **Paso 4: Comprobar que el módulo sigue importándose**
 
@@ -955,10 +965,17 @@ Esperado: todo en 200, `0` errores, y los seis `oar_*` en pie.
 - [ ] **Paso 7: Comprobar que ninguna credencial llegó al repo**
 
 ```bash
-git log -p --all | grep -ci "CLAVE_DEL_ENV\|CORREO_DEL_ENV" || echo "limpio"
+# Mismo principio que en la Tarea 3: el patron sale del .env del servidor.
+ssh root@5.161.176.32 "grep -oP \"^VISITADOS_\w+='?\K[^']+\" /opt/geovisor/.env" > /tmp/secretos.txt
+git log -p --all | grep -Ff /tmp/secretos.txt && echo "FUGA" || echo "limpio"
+rm -f /tmp/secretos.txt
 ```
 
 Esperado: `limpio`
+
+**El repositorio es público.** Cualquier credencial que entre en un commit hay
+que darla por comprometida aunque se borre después: queda en el historial, en
+los forks y en la caché de GitHub. La única reparación real es rotarla.
 
 ---
 
