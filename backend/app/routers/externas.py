@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from .. import config, db, fuentes, visitados
+from ..fechas import legible as fecha_legible
 from .. import pila as pila_logica
 from ..auth import requiere_sesion
 from .pila import materializar
@@ -99,9 +100,16 @@ def _hondo(objeto, ruta: str):
 
 
 def _recortar(propiedades: dict, fuente: fuentes.Fuente) -> dict:
-    """Deja solo la lista blanca y absolutiza los enlaces relativos."""
+    """Deja solo la lista blanca, hace legibles las fechas y absolutiza enlaces."""
     if fuente.campos:
         propiedades = {k: v for k, v in propiedades.items() if k in fuente.campos}
+    for campo in fuente.fechas:
+        # Solo se sustituye si la conversion sale: asi un registro con basura
+        # en ese campo conserva lo que traia en vez de quedarse vacio, y una
+        # fuente que ya mande la fecha hecha no se pisa.
+        convertida = fecha_legible(propiedades.get(campo))
+        if convertida:
+            propiedades[campo] = convertida
     for campo, base in fuente.enlaces.items():
         valor = propiedades.get(campo)
         if isinstance(valor, str) and valor:

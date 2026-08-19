@@ -9,23 +9,7 @@ red se prueba entero en un segundo.
 El detalle de que campo sale de donde esta en la spec:
 docs/superpowers/specs/2026-08-19-visitados-criticos-design.md
 """
-import datetime
-
-# Colombia no cambia la hora en todo el ano, asi que el desfase es fijo.
-COLOMBIA = datetime.timezone(datetime.timedelta(hours=-5))
-
-
-def fecha(ms) -> str | None:
-    """Milisegundos UTC a fecha legible en hora de Colombia.
-
-    La API lo da todo en epoch. Un numero de trece cifras no le dice nada a
-    quien esta mirando el mapa, y la ficha muestra los valores tal cual.
-    """
-    # bool es subclase de int en Python: sin esta guarda, True saldria como
-    # 1970-01-01 y pareceria un dato real.
-    if isinstance(ms, bool) or not isinstance(ms, (int, float)):
-        return None
-    return datetime.datetime.fromtimestamp(ms / 1000, COLOMBIA).strftime("%Y-%m-%d %H:%M")
+from .fechas import legible as fecha
 
 
 def de(objeto, *ruta):

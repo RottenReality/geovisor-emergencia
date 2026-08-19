@@ -81,6 +81,11 @@ class Fuente:
     url: str
     # Lista BLANCA de atributos que salen hacia el navegador. Vacia = todos.
     campos: tuple[str, ...] = ()
+    # Campos que llegan como epoch en milisegundos y se convierten a fecha
+    # legible. Se declaran a mano en vez de adivinarlos por el valor: un
+    # entero de trece cifras puede ser un instante o pueden ser pesos, y
+    # convertir un importe en una fecha de 1970 es peor que no convertir nada.
+    fechas: tuple[str, ...] = ()
     titulo: str = ""            # atributo que encabeza la ficha del elemento
     color: str = "#3a86ff"
     minutos: int = 10           # cuanto vale la pena reusar lo ya descargado
@@ -240,6 +245,7 @@ CATALOGO: tuple[Fuente, ...] = (
                     "colores": HABITABILIDAD_EDE,
                     "etiquetas": HABITABILIDAD_ETIQUETAS,
                     "orden": ["h", "r1", "r2", "i1", "i2", "i3"]},
+        fechas=("fecha_inspeccion", "EditDate"),
     ),
     Fuente(
         clave="copernicus-grading",
@@ -298,6 +304,7 @@ CATALOGO: tuple[Fuente, ...] = (
         simbologia={"campo": "SEVERIDAD", "modo": "rangos",
                     "cortes": [1, 2, 3, 4, 5, 6],
                     "colores": ["#1a9641", "#a6d96a", "#fdae61", "#e8703a", "#d7191c"]},
+        fechas=("CreationDate", "EditDate"),
     ),
     Fuente(
         clave="drp-infraestructura",
@@ -339,6 +346,7 @@ CATALOGO: tuple[Fuente, ...] = (
         simbologia={"campo": "nivel_de_severidad", "modo": "categorias",
                     "colores": {"Severo": "#8c0d10", "Moderado": "#f4a261", "Leve": "#ffd166"},
                     "orden": ["Severo", "Moderado", "Leve"]},
+        fechas=("fecha_y_hora_del_reporte",),
     ),
     Fuente(
         clave="mapa-terremoto",
@@ -401,6 +409,7 @@ CATALOGO: tuple[Fuente, ...] = (
         color="#2a9d8f",
         naturaleza="dinamica",
         nota="Capa principal del programa DRP de Esri Colombia.",
+        fechas=("EditDate",),
     ),
     Fuente(
         clave="drp-conectividad",
@@ -415,6 +424,7 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="nombre",
         color="#118ab2",
         naturaleza="dinamica",
+        fechas=("actualizado",),
     ),
     Fuente(
         clave="drp-albergues-pereira",
@@ -434,6 +444,7 @@ CATALOGO: tuple[Fuente, ...] = (
         simbologia={"campo": "Porcentaje_Ocupacion", "modo": "rangos",
                     "cortes": [0, 50, 80, 95, 100],
                     "colores": ["#1a9641", "#ffd166", "#f4a261", "#d7191c"]},
+        fechas=("Ultima_Actualizacion",),
     ),
     Fuente(
         clave="drp-acopio-survey",
@@ -499,6 +510,7 @@ CATALOGO: tuple[Fuente, ...] = (
         minutos=720,
         naturaleza="semi-estatica",
         nota="Corte del registro nacional (campo Ultima_visita).",
+        fechas=("Ultima_visita",),
     ),
     Fuente(
         clave="drp-desaparecidos-prensa",
@@ -539,6 +551,7 @@ CATALOGO: tuple[Fuente, ...] = (
         nota="Formulario con datos personales sensibles: el visor solo muestra municipio "
              "y fecha. Para el caso completo hay que ir a la fuente, con su tratamiento "
              "de datos.",
+        fechas=("_cu_ndo_fue_la_ltima_vez_que_la", "CreationDate"),
     ),
     Fuente(
         clave="drp-mascotas-apoyo",
@@ -629,6 +642,7 @@ CATALOGO: tuple[Fuente, ...] = (
         nota="Es el INVENTARIO de la red, no su estado tras el sismo: el campo «estado» es "
              "de uso interno de INVIAS y viene vacío en tres de cada cuatro tramos. "
              "Generalizada a ~55 m: sin simplificar son 118 MB.",
+        fechas=("fecha_actualiz",),
     ),
     Fuente(
         clave="invias-puentes",
