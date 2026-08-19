@@ -109,8 +109,10 @@ async def crear(datos: NuevaSubida, sesion: dict = Depends(requiere_sesion)):
                    f"pesa {datos.tamano // 1024**2} MB. Divide la capa en partes "
                    f"(en QGIS: Vectorial > Herramientas de investigacion > Dividir capa vectorial)."
                    if datos.tipo == "vector" else
-                   f"El maximo es {tope // 1024**3} GB y este archivo pesa "
-                   f"{datos.tamano // 1024**3} GB.")
+                   # Con division entera 8,38 GB salia como "8 GB" y el aviso se
+                   # contradecia: "el maximo es 8 GB y este pesa 8 GB".
+                   f"El maximo es {tope / 1024**3:.1f} GB y este archivo pesa "
+                   f"{datos.tamano / 1024**3:.1f} GB.")
 
     os.makedirs(config.DIR_PARCIALES, exist_ok=True)
 
