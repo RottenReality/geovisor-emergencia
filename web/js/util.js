@@ -13,6 +13,29 @@ export function avisar(texto, esError = false) {
   temporizador = setTimeout(() => aviso.classList.remove('visible'), esError ? 6000 : 4000);
 }
 
+/** Texto del error que manda el servidor.
+ *
+ * Casi siempre `detail` es una frase y basta con mostrarla. Pero cuando FastAPI
+ * rechaza el cuerpo por validacion llega como lista de objetos, y meterla tal
+ * cual en un Error la convierte en "[object Object]": quien sube ve un mensaje
+ * indescifrable y encima se pierde el unico dato que importaba, que campo
+ * fallo. Aqui se rescata.
+ */
+function detalleDeError(cuerpo, estado) {
+  const detalle = cuerpo?.detail;
+  if (typeof detalle === 'string' && detalle) return detalle;
+  if (Array.isArray(detalle) && detalle.length) {
+    return detalle
+      .map((fallo) => {
+        // loc viene como ['body', 'tamano']; 'body' no le dice nada a nadie.
+        const campo = (fallo?.loc || []).filter((parte) => parte !== 'body').join('.');
+        return campo ? `${campo}: ${fallo?.msg}` : String(fallo?.msg ?? fallo);
+      })
+      .join('; ');
+  }
+  return `Error ${estado}`;
+}
+
 /** fetch con manejo central del 401: si la sesion caduca, al login. */
 export async function api(ruta, opciones = {}) {
   const respuesta = await fetch(ruta, opciones);
@@ -22,7 +45,7 @@ export async function api(ruta, opciones = {}) {
   }
   if (!respuesta.ok) {
     const cuerpo = await respuesta.json().catch(() => ({}));
-    throw new Error(cuerpo.detail || `Error ${respuesta.status}`);
+    throw new Error(detalleDeError(cuerpo, respuesta.status));
   }
   return respuesta.status === 204 ? null : respuesta.json();
 }

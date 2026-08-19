@@ -46,7 +46,11 @@ MAX_POR_TIPO = {
 class NuevaSubida(BaseModel):
     archivo: str
     nombre: str
-    tamano: int = Field(gt=0, le=MAX_TAMANO)
+    # El tamano se valida abajo, no aqui. Un rechazo de Pydantic viaja como 422
+    # con una lista de objetos: el navegador no puede convertirla en una frase y
+    # quien sube se queda sin saber que hacer. Peor aun, ese 422 se adelantaba al
+    # 413 de mas abajo, que es el que si explica el limite y como sortearlo.
+    tamano: int
     tam_trozo: int = Field(default=8 * 1024 * 1024, ge=MIN_TROZO, le=MAX_TROZO)
     tipo: str = "raster"
 
@@ -80,6 +84,17 @@ async def listar():
 
 @router.post("", status_code=201)
 async def crear(datos: NuevaSubida, sesion: dict = Depends(requiere_sesion)):
+    # Se comprueba antes que la extension: si el navegador leyo cero bytes, el
+    # nombre casi nunca es el problema y decir "extension no admitida" desvia.
+    if datos.tamano <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="El navegador leyo el archivo vacio (0 bytes). Suele pasar si esta "
+                   "en OneDrive o Drive sin descargar del todo, si vive en una carpeta "
+                   "de red o un disco que se desconecto, o si se arrastro la carpeta en "
+                   "vez del archivo. Abrelo una vez en el equipo, comprueba que pesa lo "
+                   "que deberia y vuelve a elegirlo.")
+
     if datos.tipo not in EXTENSIONES:
         raise HTTPException(status_code=400, detail="tipo debe ser 'raster' o 'vector'")
     if not datos.archivo.lower().endswith(EXTENSIONES[datos.tipo]):

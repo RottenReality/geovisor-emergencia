@@ -1,8 +1,12 @@
 """Geovisor de emergencia sismica -- API."""
+import logging
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from . import auth, config, db
@@ -25,6 +29,28 @@ app = FastAPI(
     version="1.0.0",
     lifespan=ciclo_vida,
 )
+
+
+# El de uvicorn y no uno propio: es el unico que ya trae handler y formato,
+# asi la linea sale junto a las demas en `docker logs geo_api`.
+registro = logging.getLogger("uvicorn.error")
+
+
+@app.exception_handler(RequestValidationError)
+async def cuerpo_invalido(peticion: Request, error: RequestValidationError):
+    """Igual que el de serie, pero dejando dicho en el log que campo fallo.
+
+    Un 422 es el unico error que no se explica solo: el navegador recibe una
+    lista de objetos y el log, un numero. Sin esta linea, averiguar por que se
+    cayo una subida exige reproducirla a ciegas.
+    """
+    detalles = "; ".join(
+        f"{'.'.join(str(p) for p in fallo.get('loc', []))}={fallo.get('input')!r:.120} "
+        f"({fallo.get('msg')})"
+        for fallo in error.errors()
+    )
+    registro.warning("422 en %s %s -- %s", peticion.method, peticion.url.path, detalles)
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(error.errors())})
 
 
 @app.get("/health")
