@@ -29,6 +29,12 @@ HORAS_SUBIDA_ABANDONADA = int(os.environ.get("HORAS_SUBIDA_ABANDONADA", "48"))
 # Su imagen sirve en el puerto 80, no en el 8000.
 TITILER_URL = os.environ.get("TITILER_URL", "http://titiler")
 
+# API de Visitados criticos de la Alcaldia de Cali (Basic Auth). Opcionales a
+# proposito: sin ellas el visor arranca igual y solo esa capa avisa de que
+# falta configurarlas. Un despliegue no debe caerse entero por una fuente.
+VISITADOS_USUARIO = os.environ.get("VISITADOS_USUARIO", "")
+VISITADOS_CLAVE = os.environ.get("VISITADOS_CLAVE", "")
+
 # EPSG oficial de Colombia: MAGNA-SIRGAS / Origen-Nacional
 # (Resolucion 471 de 2020, IGAC).
 SRID_OFICIAL_CO = 9377
