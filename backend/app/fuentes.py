@@ -34,6 +34,12 @@ el navegador. Lo que el mapa aporta es donde se concentran los reportes, no
 como se llama cada quien; republicar los datos de contacto en un visor con
 clave compartida sobre IP publica seria un problema de habeas data (Ley 1581
 de 2012) sin ninguna ganancia de analisis.
+
+La excepcion es `cali-visitados-criticos`, donde el equipo decidio de forma
+expresa publicar el contacto de la persona afectada y los datos del tecnico
+que evaluo, porque el uso previsto es repreguntarle. Queda dicho aqui para
+que el criterio no parezca un descuido; revertirlo es quitar lineas de
+`visitados.py` y volver a desplegar, sin nada que migrar.
 """
 from dataclasses import dataclass, field
 
@@ -64,6 +70,7 @@ class Fuente:
       geojson   URL que ya devuelve GeoJSON
       lista     JSON con un arreglo de objetos que llevan latitud y longitud
       gdacs     un Feature suelto de la API de GDACS
+      visitados API autenticada de la Alcaldia de Cali (Basic Auth + ventana)
       enlace    no se integra; se muestra en el catalogo con el motivo
     """
     clave: str
@@ -139,6 +146,22 @@ HABITABILIDAD_ETIQUETAS = {
     "i3": "Inhabitable (I3)",
 }
 
+# Colapso verificado por la Alcaldia de Cali. Solo hay dos grados en esta API
+# y se pintan con los mismos rojos que usan las capas de Copernicus: que "lo
+# mas grave" sea siempre el mismo color es lo que permite mirar dos fuentes
+# distintas sin recalibrar la vista.
+COLAPSO_CALI = {"A": "#8c0d10", "B": "#e63946"}
+COLAPSO_CALI_ETIQUETAS = {
+    "A": "A · Colapso total",
+    "B": "B · Riesgo de colapso",
+}
+
+# Ventana que se pide a la API de Visitados criticos. Fija en el 1 de agosto
+# de 2026, con margen sobre el caso mas antiguo que existe (11 de agosto):
+# pedir siempre desde el principio garantiza que no se pierda ninguno cuando
+# alguien corrige una evaluacion vieja y le cambia la fecha.
+VISITADOS_DESDE_UTC = 1785542400000    # 2026-08-01 00:00 UTC
+
 DRP = "https://services.arcgis.com/vC1CdlKWEAtuT38d/arcgis/rest/services/"
 IGAC_ORTO = "https://mapas2.igac.gov.co/image2/rest/services/orto/"
 INVIAS = "https://hermes.invias.gov.co/arcgis/rest/services/OpenData/ServiciosOpenData/FeatureServer"
@@ -166,6 +189,24 @@ CATALOGO: tuple[Fuente, ...] = (
     _orto("Jamundí", "ortoJamundi", "jamundi"),
 
     # -- Danos --------------------------------------------------------------
+    Fuente(
+        clave="cali-visitados-criticos",
+        nombre="Visitados críticos · colapso A/B (Cali)",
+        organizacion="Alcaldía de Cali",
+        tema="dano",
+        tipo="visitados",
+        url="https://atencionsismo.cali.gov.co/api/operario/reports/visitados-criticos",
+        titulo="direccion",
+        color="#8c0d10",
+        minutos=10,
+        naturaleza="dinamica",
+        nota="Solo casos con visita hecha y colapso verificado A o B. "
+             "Incluye datos de contacto y del técnico que evaluó.",
+        simbologia={"campo": "colapso", "modo": "categorias",
+                    "colores": COLAPSO_CALI,
+                    "etiquetas": COLAPSO_CALI_ETIQUETAS,
+                    "orden": ["A", "B"]},
+    ),
     Fuente(
         # La clave se queda como esta: identifica la fuente en la pila y en la
         # tabla `externas`, y cambiarla dejaria huerfano lo ya publicado.
