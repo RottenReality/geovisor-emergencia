@@ -110,7 +110,9 @@ entero en un segundo.
 
 ### Mapa de campos
 
-Un punto por caso. Nombres en minúscula y sin acentos, siguiendo la convención
+Un punto por caso: **54 propiedades**, medidas contra los 413 casos reales, y
+el mismo juego de claves en todos, de modo que la tabla de atributos nunca
+cambia de forma. Nombres en minúscula y sin acentos, siguiendo la convención
 del repo. Las fechas se convierten de milisegundos UTC a `YYYY-MM-DD HH:MM` en
 hora de Colombia (UTC−5), que es lo que la ficha muestra tal cual.
 
