@@ -167,9 +167,11 @@ CATALOGO: tuple[Fuente, ...] = (
 
     # -- Danos --------------------------------------------------------------
     Fuente(
+        # La clave se queda como esta: identifica la fuente en la pila y en la
+        # tabla `externas`, y cambiarla dejaria huerfano lo ya publicado.
         clave="ungrd-ede",
         nombre="Matriz EDE · evaluación de edificaciones",
-        organizacion="Unidad de Gestión del Riesgo",
+        organizacion="AMVA",
         tema="dano",
         tipo="arcgis",
         url="https://services6.arcgis.com/EF6OTqvE0RxR2jwj/arcgis/rest/services/"
@@ -190,8 +192,9 @@ CATALOGO: tuple[Fuente, ...] = (
         naturaleza="dinamica",
         formulario="https://survey123.arcgis.com/share/042e021e34e349ddadf738270674dcc9",
         nota="Inspección oficial en campo, con el criterio de habitabilidad del formato "
-             "EDE. El servicio acepta escritura pública, así que un registro suelto no es "
-             "dato firme hasta contrastarlo.",
+             "EDE. Lo comparte el Área Metropolitana del Valle de Aburrá. El servicio "
+             "acepta escritura pública, así que un registro suelto no es dato firme "
+             "hasta contrastarlo.",
         simbologia={"campo": "habitabilidad_final", "modo": "categorias",
                     "colores": HABITABILIDAD_EDE,
                     "etiquetas": HABITABILIDAD_ETIQUETAS,

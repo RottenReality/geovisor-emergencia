@@ -208,6 +208,22 @@ const PARTES_VECTOR = ['-relleno', '-borde', '-punto'];
  * como teselas- porque ninguna de estas fuentes pasa de unos pocos miles de
  * elementos y asi el servidor no tiene que trocear nada.
  */
+/**
+ * Radio de los puntos de una capa, en pixeles y por nivel de zoom.
+ *
+ * El multiplicador lo pone quien mira, desde el panel. Hace falta porque el
+ * tamano bueno no es una propiedad del dato sino de la escala de trabajo: los
+ * mismos puntos que a nivel de ciudad hay que agrandar para verlos, a nivel de
+ * manzana se convierten en una mancha. Los de una fuente externa arrancan algo
+ * mas pequenos que los propios, para que el dibujo del equipo mande.
+ */
+function radioDe(item) {
+  const factor = item.radio ?? 1;
+  const base = item.esExterna ? [3.5, 6, 9] : [4, 7, 10];
+  return ['interpolate', ['linear'], ['zoom'],
+          5, base[0] * factor, 12, base[1] * factor, 18, base[2] * factor];
+}
+
 function montarExterna(item, clave) {
   if (esImagen(item)) {
     if (!mapa.getSource(clave)) {
@@ -244,7 +260,7 @@ function montarExterna(item, clave) {
     id: `${clave}-punto`, type: 'circle', source: clave, filter: ES_PUNTO,
     paint: {
       'circle-color': color,
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 3.5, 12, 6, 18, 9],
+      'circle-radius': radioDe(item),
       // Borde oscuro en vez de blanco: distingue de un vistazo lo que viene de
       // fuera de lo que dibujo el equipo, sin gastar un color.
       'circle-stroke-color': '#11161d',
@@ -319,7 +335,7 @@ export function sincronizarCapas(items) {
         filter: filtroDe(item.id, ES_PUNTO),
         paint: {
           'circle-color': color,
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 4, 12, 7, 18, 10],
+          'circle-radius': radioDe(item),
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 1.6,
         },
@@ -373,6 +389,7 @@ export function aplicarEstilos(items) {
     if (mapa.getLayer(`${clave}-punto`)) {
       mapa.setPaintProperty(`${clave}-punto`, 'circle-color', color);
       mapa.setPaintProperty(`${clave}-punto`, 'circle-opacity', opacidad);
+      mapa.setPaintProperty(`${clave}-punto`, 'circle-radius', radioDe(item));
     }
   }
 }

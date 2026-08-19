@@ -44,6 +44,12 @@ ALTER TABLE capas ADD COLUMN IF NOT EXISTS orden    INTEGER;
 ALTER TABLE capas ADD COLUMN IF NOT EXISTS opacidad REAL NOT NULL DEFAULT 1;
 UPDATE capas SET orden = id WHERE orden IS NULL;
 
+-- Multiplicador del radio de los puntos. Un punto de 7 px se ve en una capa de
+-- treinta reportes y desaparece en una de tres mil; el tamano util depende de
+-- la capa y de la escala a la que se este trabajando, asi que lo decide quien
+-- mira. Solo afecta a los puntos: lineas y poligonos ya tienen su ancho.
+ALTER TABLE capas ADD COLUMN IF NOT EXISTS radio REAL NOT NULL DEFAULT 1;
+
 -- Simbologia tematica: como pintar la capa segun uno de sus atributos.
 -- Se guarda en el servidor a proposito: el codigo de colores de "nivel de
 -- afectacion" es un acuerdo del equipo, y si cada quien lo viera distinto los
@@ -215,6 +221,7 @@ CREATE TABLE IF NOT EXISTS externas (
   visible  BOOLEAN NOT NULL DEFAULT true,
   opacidad REAL    NOT NULL DEFAULT 1
 );
+ALTER TABLE externas ADD COLUMN IF NOT EXISTS radio REAL NOT NULL DEFAULT 1;
 
 -- Una fila por cosa que ocupa sitio en el panel, grupos incluidos:
 --   capa-13  raster-6  ext-ungrd-ede  grupo-2

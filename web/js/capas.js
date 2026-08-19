@@ -19,6 +19,7 @@ import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRas
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
 import * as externas from './externas.js';
+import * as tabla from './tabla.js';
 
 /** Lista completa, del fondo al frente: primero imagenes, luego dibujo. */
 export let items = [];
@@ -131,6 +132,7 @@ function pintar() {
     const cabecera = cabeceraDeGrupo(nodo, porClave);
     if (!cabecera) continue;
     lista.appendChild(cabecera);
+    if (expandida === nodo.clave) lista.appendChild(detalleDeGrupo(nodo));
     if (plegados.has(nodo.clave)) continue;
 
     const cuerpo = document.createElement('div');
@@ -162,6 +164,7 @@ function cabeceraDeGrupo(nodo, porClave) {
   const dentro = nodo.hijos.map((c) => porClave.get(c)).filter(Boolean);
   const encendidas = dentro.filter((i) => i.visible).length;
   const plegado = plegados.has(nodo.clave);
+  const abierto = expandida === nodo.clave;
 
   const cabecera = document.createElement('div');
   cabecera.className = 'grupo-cabecera' + (plegado ? ' plegado' : '');
@@ -177,8 +180,9 @@ function cabeceraDeGrupo(nodo, porClave) {
             title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
     <button class="icono" data-grupo="bajar" ${pila.enElBorde(nodo.clave, 'bajar') ? 'disabled' : ''}
             title="Enviar atrás" aria-label="Enviar atrás">&darr;</button>
-    <button class="icono" data-grupo="opciones" title="Renombrar, color o deshacer"
-            aria-label="Opciones del grupo">&#8943;</button>`;
+    <button class="icono chevron ${abierto ? 'abierto' : ''}" data-grupo="opciones"
+            title="${abierto ? 'Cerrar opciones' : 'Nombre, color o deshacer'}"
+            aria-expanded="${abierto}" aria-label="Opciones del grupo">&#8943;</button>`;
 
   cabecera.querySelector('.chevron').onclick = () => {
     if (plegado) plegados.delete(nodo.clave); else plegados.add(nodo.clave);
@@ -196,27 +200,77 @@ function cabeceraDeGrupo(nodo, porClave) {
   return cabecera;
 }
 
+/**
+ * Opciones del grupo, desplegadas bajo su cabecera.
+ *
+ * Antes todo esto era un `prompt` donde habia que escribir el nombre nuevo, o
+ * un color en hexadecimal, o la palabra DISOLVER. Nadie se sabe un color de
+ * memoria y escribir una palabra clave para deshacer algo es una trampa: se
+ * teclea mal y no pasa nada, o se teclea bien por accidente. Aqui cada cosa
+ * tiene su control, igual que en la ficha de una capa.
+ *
+ * Deshacer el grupo NO borra las capas: salen sueltas al nivel de arriba, en
+ * el mismo sitio donde estaba el grupo.
+ */
+function detalleDeGrupo(nodo) {
+  const id = Number(nodo.clave.slice('grupo-'.length));
+  const grupo = pila.grupos().find((g) => g.id === id);
+  if (!grupo) return document.createElement('div');
+
+  const cuantas = nodo.hijos.length;
+  const detalle = document.createElement('div');
+  detalle.className = 'grupo-detalle';
+  detalle.innerHTML = `
+    <label>Nombre del grupo</label>
+    <input type="text" maxlength="80" value="${escapar(grupo.nombre)}" data-grupo="nombre">
+    <label>Color</label>
+    <input type="color" value="${escapar(grupo.color)}" data-grupo="color">
+    <button data-grupo="disolver" class="peligro">
+      Deshacer grupo${cuantas ? ` (deja ${cuantas} capa${cuantas === 1 ? '' : 's'} suelta${cuantas === 1 ? '' : 's'})` : ''}
+    </button>
+    <button data-grupo="opciones" class="tenue cerrar-detalle">Cerrar opciones</button>`;
+
+  detalle.querySelectorAll('[data-grupo]').forEach((control) => {
+    const accion = control.dataset.grupo;
+    if (accion === 'nombre') {
+      // onchange y no oninput: guardar cada tecla seria una peticion por letra,
+      // y repintar el panel a media palabra quita el foco de la casilla.
+      control.onchange = () => guardarGrupo(grupo.id, { nombre: control.value.trim() });
+    } else if (accion === 'color') {
+      control.oninput = () => {
+        const punto = detalle.previousElementSibling?.querySelector('.punto-grupo');
+        if (punto) punto.style.background = control.value;
+      };
+      control.onchange = () => guardarGrupo(grupo.id, { color: control.value });
+    } else {
+      control.onclick = () => manejarGrupo(accion, grupo, nodo);
+    }
+  });
+  return detalle;
+}
+
+async function guardarGrupo(id, cambios) {
+  if (cambios.nombre === '') { pintar(); return; }
+  try {
+    await pila.editarGrupo(id, cambios);
+    await cargar();
+  } catch (error) { avisar(error.message, true); pintar(); }
+}
+
 async function manejarGrupo(accion, grupo, nodo) {
   try {
     if (accion === 'subir' || accion === 'bajar') {
       await pila.mover(nodo.clave, accion);
-    } else {
-      const que = prompt(
-        `Grupo "${grupo.nombre}".
-
-Escribe un nombre nuevo para renombrarlo,
-un color en formato #rrggbb para recolorearlo,
-o la palabra DISOLVER para deshacer el grupo (las capas no se borran).`,
-        grupo.nombre);
-      if (!que || !que.trim()) return;
-      if (que.trim().toUpperCase() === 'DISOLVER') {
-        const salida = await pila.disolverGrupo(grupo.id);
-        avisar(`Grupo deshecho. ${salida.sueltas} capa(s) quedaron sueltas.`);
-      } else if (/^#[0-9a-f]{6}$/i.test(que.trim())) {
-        await pila.editarGrupo(grupo.id, { color: que.trim() });
-      } else {
-        await pila.editarGrupo(grupo.id, { nombre: que.trim() });
-      }
+    } else if (accion === 'opciones') {
+      expandida = expandida === nodo.clave ? null : nodo.clave;
+      pintar();
+      return;
+    } else if (accion === 'disolver') {
+      if (!confirm(`¿Deshacer el grupo "${grupo.nombre}"? `
+                   + 'Las capas no se borran: quedan sueltas en el panel.')) return;
+      expandida = null;
+      const salida = await pila.disolverGrupo(grupo.id);
+      avisar(`Grupo deshecho. ${salida.sueltas} capa(s) quedaron sueltas.`);
     }
     await cargar();
   } catch (error) { avisar(error.message, true); }
@@ -294,6 +348,53 @@ function selectorDeGrupo(item) {
     </select>`;
 }
 
+/**
+ * Deslizador del tamano de los puntos, hermano del de opacidad.
+ *
+ * Solo aparece si la capa tiene puntos: en una de manzanas o de vias no pinta
+ * nada y solo ocuparia sitio. Lo dice el servidor para las capas propias
+ * (`tiene_puntos`) y el GeoJSON ya descargado para las externas.
+ */
+function bloqueTamano(item) {
+  const conPuntos = item.esExterna ? item.tienePuntos : !item.esRaster && item.tiene_puntos;
+  if (!conPuntos) return '';
+  const valor = Math.round((item.radio ?? 1) * 100);
+  return `
+    <label>Tamaño de los puntos <output data-salida="radio">${valor}%</output></label>
+    <input type="range" min="40" max="300" step="10" value="${valor}" data-accion="radio">`;
+}
+
+const COLOR_GRUPO = '#8d99ae';
+
+/** "Grupo 1", "Grupo 2"... sin repetir ninguno de los que ya hay. */
+function nombreLibreDeGrupo() {
+  const usados = new Set(pila.grupos().map((g) => g.nombre));
+  let n = pila.grupos().length + 1;
+  while (usados.has(`Grupo ${n}`)) n += 1;
+  return `Grupo ${n}`;
+}
+
+/**
+ * Mete o saca la capa de un grupo.
+ *
+ * "+ Nuevo grupo" no pregunta nada: crea el grupo con un nombre libre y abre
+ * sus opciones ya desplegadas, que es donde se le pone el nombre de verdad y
+ * el color. Preguntar el nombre antes de que el grupo exista obliga a decidir
+ * a ciegas y no deja ver el resultado.
+ */
+async function moverAGrupo(item, valor) {
+  try {
+    let destino = valor === '' ? null : valor;
+    if (destino === 'nuevo') {
+      const grupo = await pila.crearGrupo(nombreLibreDeGrupo(), COLOR_GRUPO);
+      destino = grupo.id;
+      expandida = `grupo-${grupo.id}`;
+    }
+    await pila.agrupar(claveDePila(item), destino === null ? null : Number(destino));
+    await cargar();
+  } catch (error) { avisar(error.message, true); pintar(); }
+}
+
 function pintarFila(item) {
   const clave = `${item.esRaster ? 'r' : 'c'}${item.id}`;
   const clave2 = claveDePila(item);
@@ -339,9 +440,10 @@ function pintarFila(item) {
       </div>
       <div class="capa-detalle">
         ${item.estado === 'error' ? `<p class="error-texto">${escapar(item.mensaje || 'Falló la conversión')}</p>` : ''}
-        <label>Opacidad <output>${Math.round((item.opacidad ?? 1) * 100)}%</output></label>
+        <label>Opacidad <output data-salida="opacidad">${Math.round((item.opacidad ?? 1) * 100)}%</output></label>
         <input type="range" min="0" max="100" value="${Math.round((item.opacidad ?? 1) * 100)}"
                data-accion="opacidad">
+        ${bloqueTamano(item)}
         ${item.esRaster ? (item.num_bandas > 1 ? `
           <label>Combinación de bandas (${item.num_bandas} bandas)</label>
           <select data-accion="combinacion">
@@ -370,10 +472,17 @@ function pintarFila(item) {
                 </span>`).join('')}
               ${entradas.length > 8 ? `<span class="par-leyenda">y ${entradas.length - 8} más</span>` : ''}
             </div>` : ''}`}
+        <label style="margin-top:8px">Nombre</label>
+        <input type="text" maxlength="120" value="${escapar(item.nombre)}" data-accion="nombre">
         ${selectorDeGrupo(item)}
         <div class="fila" style="margin-top:8px">
           <button data-accion="encuadrar">Ir a la capa</button>
-          <button data-accion="renombrar">Renombrar</button>
+          ${item.esRaster ? '' : `
+            <button data-accion="tabla" ${item.total ? '' : 'disabled'}
+                    title="${item.total ? 'Ver los atributos como tabla'
+                                        : 'Esta capa no tiene elementos'}">
+              Tabla de atributos
+            </button>`}
         </div>
         ${bloqueDescarga(item)}
         <button data-accion="borrar" class="peligro">Eliminar capa</button>
@@ -383,26 +492,29 @@ function pintarFila(item) {
   fila.querySelectorAll('[data-accion]').forEach((control) => {
     const accion = control.dataset.accion;
     if (accion === 'grupo') {
-      control.onchange = async (e) => {
-        try {
-          let destino = e.target.value === '' ? null : e.target.value;
-          if (destino === 'nuevo') {
-            const nombre = prompt('Nombre del grupo nuevo:', 'Grupo');
-            if (!nombre || !nombre.trim()) { pintar(); return; }
-            destino = (await pila.crearGrupo(nombre.trim(), '#8d99ae')).id;
-          }
-          await pila.agrupar(claveDePila(item), destino === null ? null : Number(destino));
-          await cargar();
-        } catch (error) { avisar(error.message, true); pintar(); }
-      };
+      control.onchange = (e) => moverAGrupo(item, e.target.value);
     } else if (accion === 'opacidad') {
       control.oninput = (e) => {
         const valor = Number(e.target.value) / 100;
         item.opacidad = valor;
-        fila.querySelector('output').textContent = `${e.target.value}%`;
+        fila.querySelector('[data-salida="opacidad"]').textContent = `${e.target.value}%`;
         aplicarEstilos([efectivo(item)]);
       };
       control.onchange = (e) => actualizar(item, { opacidad: Number(e.target.value) / 100 }, false);
+    } else if (accion === 'radio') {
+      control.oninput = (e) => {
+        item.radio = Number(e.target.value) / 100;
+        fila.querySelector('[data-salida="radio"]').textContent = `${e.target.value}%`;
+        aplicarEstilos([efectivo(item)]);
+      };
+      control.onchange = (e) => actualizar(item, { radio: Number(e.target.value) / 100 }, false);
+    } else if (accion === 'nombre') {
+      // onchange: guardar por cada tecla seria una peticion por letra, y
+      // repintar a media palabra dejaria la casilla sin foco.
+      control.onchange = () => {
+        const nombre = control.value.trim();
+        if (nombre) actualizar(item, { nombre }); else pintar();
+      };
     } else if (accion === 'color') {
       // El color ya no viaja dentro de la tesela sino que se aplica en el
       // estilo, asi que se puede ver el cambio mientras se arrastra el
@@ -483,9 +595,10 @@ function pintarFilaExterna(item) {
             ${item.sinUbicacion.toLocaleString('es-CO')} registros de esta fuente no traen
             coordenadas y no están en el mapa.
           </p>` : ''}
-        <label>Opacidad <output>${Math.round((item.opacidad ?? 1) * 100)}%</output></label>
+        <label>Opacidad <output data-salida="opacidad">${Math.round((item.opacidad ?? 1) * 100)}%</output></label>
         <input type="range" min="0" max="100" value="${Math.round((item.opacidad ?? 1) * 100)}"
                data-accion="opacidad">
+        ${bloqueTamano(item)}
         ${entradas.length ? `
           <div class="leyenda-mini">
             ${entradas.map((f) => `
@@ -500,6 +613,10 @@ function pintarFilaExterna(item) {
           <a class="boton-enlace" href="${escapar(item.fuente.url)}"
              target="_blank" rel="noopener">Ver el servicio</a>
         </div>
+        ${item.esImagen ? '' : `
+          <button data-accion="tabla" style="width:100%;margin-top:8px">
+            Tabla de atributos
+          </button>`}
         ${item.fuente.formulario ? `
           <a class="boton-enlace" style="margin-top:8px"
              href="${escapar(item.fuente.formulario)}" target="_blank" rel="noopener"
@@ -517,26 +634,24 @@ function pintarFilaExterna(item) {
   fila.querySelectorAll('[data-accion]').forEach((control) => {
     const accion = control.dataset.accion;
     if (accion === 'grupo') {
-      control.onchange = async (e) => {
-        try {
-          let destino = e.target.value === '' ? null : e.target.value;
-          if (destino === 'nuevo') {
-            const nombre = prompt('Nombre del grupo nuevo:', 'Grupo');
-            if (!nombre || !nombre.trim()) { pintar(); return; }
-            destino = (await pila.crearGrupo(nombre.trim(), '#8d99ae')).id;
-          }
-          await pila.agrupar(claveDePila(item), destino === null ? null : Number(destino));
-          await cargar();
-        } catch (error) { avisar(error.message, true); pintar(); }
-      };
+      control.onchange = (e) => moverAGrupo(item, e.target.value);
     } else if (accion === 'opacidad') {
       control.oninput = (e) => {
         item.opacidad = Number(e.target.value) / 100;
-        fila.querySelector('output').textContent = `${e.target.value}%`;
+        fila.querySelector('[data-salida="opacidad"]').textContent = `${e.target.value}%`;
         aplicarEstilos([efectivo(item)]);
       };
       control.onchange = (e) => externas
         .fijar(item.id, { opacidad: Number(e.target.value) / 100 })
+        .catch((error) => avisar(error.message, true));
+    } else if (accion === 'radio') {
+      control.oninput = (e) => {
+        item.radio = Number(e.target.value) / 100;
+        fila.querySelector('[data-salida="radio"]').textContent = `${e.target.value}%`;
+        aplicarEstilos([efectivo(item)]);
+      };
+      control.onchange = (e) => externas
+        .fijar(item.id, { radio: Number(e.target.value) / 100 })
         .catch((error) => avisar(error.message, true));
     } else {
       control.onclick = () => manejarExterna(accion, item, clave);
@@ -574,6 +689,10 @@ async function manejarExterna(accion, item, clave) {
 
     case 'copiar':
       await externas.copiar(item);
+      break;
+
+    case 'tabla':
+      tabla.abrir(item);
       break;
 
     case 'quitar':
@@ -657,11 +776,9 @@ async function manejar(accion, item, clave) {
       else avisar('Esa capa aún no tiene elementos.');
       break;
 
-    case 'renombrar': {
-      const nombre = prompt('Nuevo nombre de la capa:', item.nombre);
-      if (nombre && nombre.trim()) await actualizar(item, { nombre: nombre.trim() });
+    case 'tabla':
+      tabla.abrir(item);
       break;
-    }
 
     case 'borrar': {
       const cuantos = item.esRaster ? '' : ` y sus ${item.total} elemento(s)`;

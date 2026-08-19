@@ -385,7 +385,7 @@ async def catalogo():
             ficha["bounds"] = acotadas[ficha["clave"]]
 
     publicadas = await db.pool().fetch(
-        "SELECT clave, visible, opacidad FROM externas")
+        "SELECT clave, visible, opacidad, radio FROM externas")
 
     return {
         "temas": [{"clave": c, "titulo": t, "descripcion": d} for c, t, d in fuentes.TEMAS],
@@ -498,6 +498,7 @@ async def datos(clave: str):
 class ExternaParche(BaseModel):
     visible: bool | None = None
     opacidad: float | None = Field(default=None, ge=0, le=1)
+    radio: float | None = Field(default=None, ge=0.3, le=4)
 
 
 @router.post("/{clave}/encender", status_code=201)
@@ -536,9 +537,9 @@ async def apagar(clave: str):
 async def editar(clave: str, parche: ExternaParche):
     fila = await db.pool().fetchrow(
         "UPDATE externas SET visible=COALESCE($2, visible), "
-        "opacidad=COALESCE($3, opacidad) WHERE clave=$1 "
-        "RETURNING clave, visible, opacidad",
-        clave, parche.visible, parche.opacidad)
+        "opacidad=COALESCE($3, opacidad), radio=COALESCE($4, radio) WHERE clave=$1 "
+        "RETURNING clave, visible, opacidad, radio",
+        clave, parche.visible, parche.opacidad, parche.radio)
     if fila is None:
         raise HTTPException(status_code=404, detail="Esa fuente no esta publicada")
     return dict(fila)

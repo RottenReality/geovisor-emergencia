@@ -39,6 +39,8 @@ let encendidas = {};
 const totales = {};
 /** Cuantos registros de la fuente no se pudieron dibujar por no traer posicion. */
 const sinUbicacion = {};
+/** Si la fuente trae puntos. Decide si el panel ofrece el tamano de punto. */
+const conPuntos = {};
 
 const fuenteDe = (clave) => catalogo?.fuentes.find((f) => f.clave === clave) || null;
 
@@ -64,6 +66,8 @@ export function items() {
         estilo: fuente.simbologia || null,
         visible: estado.visible !== false,
         opacidad: estado.opacidad ?? 1,
+        radio: estado.radio ?? 1,
+        tienePuntos: conPuntos[clave] ?? false,
         bounds: fuente.bounds || null,
         total: totales[clave] ?? fuente.total,
         sinUbicacion: sinUbicacion[clave] ?? fuente.sin_ubicacion ?? 0,
@@ -91,6 +95,8 @@ async function precargar(fuente) {
   const datos = await api(`/api/externas/${fuente.clave}.geojson`);
   totales[fuente.clave] = datos.features.length;
   sinUbicacion[fuente.clave] = datos.sin_ubicacion || 0;
+  conPuntos[fuente.clave] = datos.features.some(
+    (f) => f.geometry?.type?.includes('Point'));
 }
 
 export async function encender(clave) {

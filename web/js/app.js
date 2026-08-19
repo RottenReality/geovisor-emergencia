@@ -13,6 +13,7 @@ import * as comparar from './comparar.js';
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
 import * as externas from './externas.js';
+import * as tabla from './tabla.js';
 import { PRIORITARIAS, RESTO, COLOMBIA } from './ciudades.js';
 
 // ---------------------------------------------------------------------------
@@ -24,6 +25,7 @@ mapa.on('load', async () => {
   seguirCursor();
   dibujo.inicializar();
   comparar.inicializar();
+  tabla.inicializar();
 
   dibujo.alGuardarElemento(() => capas.cargar());
   ficha.alBorrarElemento(() => capas.cargar());
@@ -269,6 +271,7 @@ document.addEventListener('keydown', (evento) => {
   } else if (dibujo.hayModal()) dibujo.cerrarModal();
   else if (dibujo.dibujando()) dibujo.activar(null);
   else if (comparar.estaActiva()) comparar.desactivar();
+  else if (tabla.estaAbierta()) tabla.cerrar();
   else { ficha.cerrar(); externas.cerrarGlobo(); }
 });
 

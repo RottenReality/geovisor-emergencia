@@ -203,6 +203,25 @@
   <div id="lista-subidas"></div>
 </aside>
 
+<!-- Tabla de atributos, acoplada abajo para no tapar el mapa -->
+<aside id="tabla" hidden>
+  <div id="tabla-asa" title="Arrastra para cambiar el alto"></div>
+  <div class="tabla-barra">
+    <strong id="tabla-titulo"></strong>
+    <span class="conteo" id="tabla-conteo"></span>
+    <input type="search" id="tabla-buscar" placeholder="Buscar en los atributos…"
+           aria-label="Buscar en los atributos de la capa">
+    <button class="icono" id="tabla-anterior" title="Página anterior"
+            aria-label="Página anterior">&larr;</button>
+    <span id="tabla-pagina" class="conteo"></span>
+    <button class="icono" id="tabla-siguiente" title="Página siguiente"
+            aria-label="Página siguiente">&rarr;</button>
+    <button class="icono" id="tabla-cerrar" title="Cerrar la tabla"
+            aria-label="Cerrar la tabla">&times;</button>
+  </div>
+  <div id="tabla-cuerpo"></div>
+</aside>
+
 <div id="aviso" role="status"></div>
 
 <!-- Modal de comparación -->

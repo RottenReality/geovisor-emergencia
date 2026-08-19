@@ -36,6 +36,7 @@ class CapaParche(BaseModel):
     color: str | None = None
     visible: bool | None = None
     opacidad: float | None = Field(default=None, ge=0, le=1)
+    radio: float | None = Field(default=None, ge=0.3, le=4)
 
 
 class EstiloEntrada(BaseModel):
@@ -63,8 +64,12 @@ async def listar():
     shapefile de un municipio que no se sabe donde cae."""
     filas = await db.pool().fetch(
         """
-        SELECT c.id, c.nombre, c.color, c.visible, c.opacidad, c.orden, c.estilo,
+        SELECT c.id, c.nombre, c.color, c.visible, c.opacidad, c.radio, c.orden, c.estilo,
                COUNT(e.id) AS total,
+               -- Para saber si tiene sentido ofrecer el tamano de punto. Sale
+               -- de la misma pasada que ya se hace para contar y encuadrar.
+               COALESCE(bool_or(GeometryType(e.geom) IN ('POINT', 'MULTIPOINT')), false)
+                 AS tiene_puntos,
                CASE WHEN COUNT(e.id) > 0 THEN ARRAY[
                  ST_XMin(ST_Extent(e.geom)), ST_YMin(ST_Extent(e.geom)),
                  ST_XMax(ST_Extent(e.geom)), ST_YMax(ST_Extent(e.geom))
@@ -100,11 +105,13 @@ async def editar(id_capa: int, parche: CapaParche):
           nombre   = COALESCE($2, nombre),
           color    = COALESCE($3, color),
           visible  = COALESCE($4, visible),
-          opacidad = COALESCE($5, opacidad)
+          opacidad = COALESCE($5, opacidad),
+          radio    = COALESCE($6, radio)
         WHERE id = $1
-        RETURNING id, nombre, color, visible, opacidad, orden
+        RETURNING id, nombre, color, visible, opacidad, radio, orden
         """,
         id_capa, parche.nombre, parche.color, parche.visible, parche.opacidad,
+        parche.radio,
     )
     if fila is None:
         raise HTTPException(status_code=404, detail="Capa no encontrada")
@@ -261,3 +268,98 @@ async def borrar(id_capa: int):
         raise HTTPException(status_code=404, detail="Capa no encontrada")
     await db.pool().execute("DELETE FROM capas WHERE id = $1", id_capa)
     return {"ok": True, "nombre": fila["nombre"], "elementos_borrados": fila["total"]}
+
+# ---------------------------------------------------------------------------
+# Tabla de atributos
+# ---------------------------------------------------------------------------
+# Las columnas se sacan de una MUESTRA y no de toda la capa. `jsonb_object_keys`
+# sobre trescientas mil manzanas cuesta segundos y no aporta: un shapefile trae
+# el mismo juego de columnas en todas sus filas. Si alguna trajera un atributo
+# raro que no cae en la muestra, se sigue viendo al abrir el elemento.
+MUESTRA_COLUMNAS = 500
+
+# Tope duro de filas por peticion. La tabla pagina; traer una capa entera al
+# navegador es justo lo que hay que evitar.
+MAX_FILAS = 200
+
+
+@router.get("/{id_capa}/tabla")
+async def tabla(id_capa: int, pagina: int = 0, limite: int = 100,
+                buscar: str = "", orden: str = "", descendente: bool = False):
+    """Atributos de la capa en forma de tabla, paginada y con busqueda.
+
+    Es lo que el equipo echaba en falta frente a otros visores: mirar los datos
+    como una tabla, no de uno en uno. Cada fila trae su envolvente para poder
+    saltar al elemento en el mapa sin una segunda peticion, que es para lo que
+    de verdad se abre la tabla: encontrar un registro y ver donde cae.
+
+    No devuelve geometria: solo la caja. Cien poligonos de manzana completos
+    pesan mas que toda la pagina de atributos junta.
+    """
+    if await db.pool().fetchval("SELECT 1 FROM capas WHERE id = $1", id_capa) is None:
+        raise HTTPException(status_code=404, detail="Capa no encontrada")
+
+    limite = max(1, min(MAX_FILAS, limite))
+    pagina = max(0, pagina)
+
+    columnas = [f["clave"] for f in await db.pool().fetch(
+        f"""
+        SELECT DISTINCT p.clave
+        FROM (SELECT propiedades FROM elementos WHERE capa_id = $1
+              LIMIT {MUESTRA_COLUMNAS}) s
+        CROSS JOIN LATERAL jsonb_object_keys(
+          CASE WHEN jsonb_typeof(s.propiedades) = 'object'
+               THEN s.propiedades ELSE '{{}}'::jsonb END) AS p(clave)
+        ORDER BY 1
+        """,
+        id_capa,
+    )]
+
+    # El texto buscado se compara contra el nombre y contra el JSONB entero.
+    # Es un barrido, pero sobre una sola capa y con el indice de capa_id
+    # delante; el equipo busca una direccion o un codigo, no hace analitica.
+    patron = f"%{buscar.strip()}%" if buscar.strip() else None
+    filtro = "e.capa_id = $1 AND ($2::text IS NULL OR "              "e.nombre ILIKE $2 OR e.propiedades::text ILIKE $2)"
+
+    total = await db.pool().fetchval(
+        f"SELECT COUNT(*) FROM elementos e WHERE {filtro}", id_capa, patron)
+
+    # El criterio de orden NO se interpola: o es una columna conocida, o va
+    # como parametro dentro de `propiedades ->> $n`, que asyncpg escapa.
+    if orden in ("id", "nombre"):
+        expresion, argumentos = f"e.{orden}", []
+    elif orden in columnas:
+        expresion, argumentos = "e.propiedades ->> $5", [orden]
+    else:
+        expresion, argumentos = "e.id", []
+    sentido = "DESC" if descendente else "ASC"
+
+    filas = await db.pool().fetch(
+        f"""
+        SELECT e.id, e.nombre, e.autor, e.creado_en, e.propiedades,
+               GeometryType(e.geom) AS geometria,
+               ARRAY[ST_XMin(e.geom), ST_YMin(e.geom),
+                     ST_XMax(e.geom), ST_YMax(e.geom)] AS caja
+        FROM elementos e
+        WHERE {filtro}
+        ORDER BY {expresion} {sentido} NULLS LAST, e.id
+        LIMIT $3 OFFSET $4
+        """,
+        id_capa, patron, limite, pagina * limite, *argumentos,
+    )
+
+    return {
+        "columnas": columnas,
+        "total": total,
+        "pagina": pagina,
+        "limite": limite,
+        "filas": [{
+            "id": f["id"],
+            "nombre": f["nombre"],
+            "autor": f["autor"],
+            "creado_en": f["creado_en"].isoformat(),
+            "geometria": f["geometria"],
+            "caja": [float(v) for v in f["caja"]] if f["caja"] else None,
+            "propiedades": json.loads(f["propiedades"]),
+        } for f in filas],
+    }

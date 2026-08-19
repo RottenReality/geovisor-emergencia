@@ -1216,3 +1216,110 @@ table.atributos code {
   text-transform: uppercase;
   letter-spacing: .04em;
 }
+
+/* --- Opciones de un grupo ------------------------------------------------ */
+/* Mismo aspecto que el detalle de una capa: es la misma clase de decision, y
+   antes vivia en un cuadro de texto donde habia que escribir DISOLVER. */
+.grupo-detalle {
+  padding: 4px 10px 10px;
+  margin-left: 5px;
+  border-left: 1px solid var(--borde);
+}
+
+/* --- Tabla de atributos -------------------------------------------------- */
+/* Acoplada abajo y no en una ventana: se usa mirando el mapa. Deja libre el
+   rail para que se pueda seguir encendiendo y apagando capas con ella abierta. */
+#tabla {
+  position: absolute;
+  left: var(--rail);
+  right: 0;
+  bottom: 0;
+  height: 320px;
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  background: var(--tinta);
+  border-top: 1px solid var(--borde);
+  transition: left .18s ease;
+}
+#tabla[hidden] { display: none; }
+#rail.oculto ~ #tabla { left: 0; }
+
+#tabla-asa {
+  height: 6px;
+  flex-shrink: 0;
+  cursor: ns-resize;
+  background: var(--tinta-2);
+  border-bottom: 1px solid var(--borde);
+}
+#tabla-asa:hover { background: var(--borde); }
+
+.tabla-barra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--borde);
+}
+.tabla-barra strong {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 34%;
+}
+.tabla-barra input[type="search"] {
+  margin: 0 0 0 auto;
+  width: min(280px, 34vw);
+}
+.tabla-barra .icono { flex-shrink: 0; }
+
+#tabla-cuerpo { flex: 1; overflow: auto; }
+#tabla-cuerpo[aria-busy="true"] { opacity: .45; }
+#tabla-cuerpo .vacio { padding: 16px; }
+
+#tabla-cuerpo table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+#tabla-cuerpo th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 9px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--papel-2);
+  background: var(--tinta-2);
+  border-bottom: 1px solid var(--borde);
+}
+#tabla-cuerpo th:hover { color: var(--papel); }
+#tabla-cuerpo th.ordenada { color: var(--foco); }
+#tabla-cuerpo td {
+  padding: 5px 9px;
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--tinta-3);
+}
+#tabla-cuerpo td.vacia { color: #4c5a68; }
+#tabla-cuerpo tbody tr { cursor: pointer; }
+#tabla-cuerpo tbody tr:hover { background: var(--tinta-2); }
+#tabla-cuerpo tbody tr:focus-visible { outline: 1px solid var(--foco); outline-offset: -1px; }
+
+/* Con la tabla abierta, la leyenda y las coordenadas se suben encima de ella:
+   taparlas dejaria el mapa tematico sin su clave justo al ir a leer los datos. */
+body.con-tabla #leyenda { bottom: calc(var(--tabla-alto, 320px) + 14px); }
+body.con-tabla #coordenadas { bottom: calc(var(--tabla-alto, 320px) + 10px); }
+
+@media (max-width: 700px) {
+  #tabla { left: 0; }
+  .tabla-barra input[type="search"] { width: 40vw; }
+}
