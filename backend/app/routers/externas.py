@@ -28,7 +28,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from .. import config, db, fuentes
+from .. import config, db, fuentes, visitados
 from .. import pila as pila_logica
 from ..auth import requiere_sesion
 from .pila import materializar
@@ -244,11 +244,55 @@ async def _de_gdacs(fuente: fuentes.Fuente) -> dict:
     }
 
 
+async def _de_visitados(fuente: fuentes.Fuente) -> dict:
+    """API autenticada de la Alcaldia de Cali.
+
+    Es la unica fuente con credenciales y con parametros obligatorios: sin la
+    ventana de fechas responde 400. Se pide siempre desde el principio de la
+    emergencia, que hoy cabe de sobra en una llamada.
+    """
+    if not (config.VISITADOS_USUARIO and config.VISITADOS_CLAVE):
+        raise HTTPException(
+            status_code=503,
+            detail="Falta configurar VISITADOS_USUARIO y VISITADOS_CLAVE "
+                   "en el .env del servidor.")
+
+    ventana = {
+        "desde_utc": fuentes.VISITADOS_DESDE_UTC,
+        "hasta_utc": int(time.time() * 1000),
+    }
+    try:
+        respuesta = await _cliente.get(
+            fuente.url, params=ventana, timeout=120.0,
+            auth=(config.VISITADOS_USUARIO, config.VISITADOS_CLAVE))
+        respuesta.raise_for_status()
+    except httpx.HTTPStatusError as excepcion:
+        # Un 401 o un 403 aqui no es "el servidor no responde": es un problema
+        # de configuracion nuestro, y decirlo ahorra ir a mirar los registros.
+        codigo = excepcion.response.status_code
+        if codigo == 401:
+            raise HTTPException(
+                status_code=502,
+                detail="La Alcaldía de Cali rechazó las credenciales de Visitados "
+                       "críticos. Revisar VISITADOS_USUARIO y VISITADOS_CLAVE "
+                       "en el .env del servidor.") from excepcion
+        if codigo == 403:
+            raise HTTPException(
+                status_code=502,
+                detail="El correo está habilitado pero todavía no tiene contraseña "
+                       "creada en el portal de operarios de la Alcaldía de Cali."
+            ) from excepcion
+        raise
+
+    return _coleccion(visitados.aplanar(respuesta.json()), fuente)
+
+
 _LECTORES = {
     "arcgis": _de_arcgis,
     "geojson": _de_geojson,
     "lista": _de_lista,
     "gdacs": _de_gdacs,
+    "visitados": _de_visitados,
 }
 
 
