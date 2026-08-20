@@ -116,6 +116,11 @@ class Fuente:
     # que se veria seria una mancha negra. Por debajo de este zoom la capa
     # simplemente no se pide.
     #
+    # En las urbanas esta en 16 y no en 15 por medida, no por gusto: una
+    # tesela z15 del centro son 853 KB y casi dos segundos de PostGIS, y en
+    # pantalla son 578.000 poligonos, que no se leen igual. A 16 la misma
+    # tesela baja a 300 KB y 140 ms.
+    #
     # zoom_max NO es hasta donde se ve, sino hasta donde se GENERA: por encima
     # el navegador reescala la ultima tesela. Sin el, mirar una manzana a z20
     # pediria 256 teselas para dibujar exactamente los mismos poligonos.
@@ -719,7 +724,7 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="numero_predial_nacional",
         color="#9b5de5",
         naturaleza="estatica",
-        zoom_min=15,
+        zoom_min=16,
         zoom_max=16,
         # Un color por planta. Sin esto la capa es ilegible: las plantas de un
         # mismo edificio se superponen casi por completo y lo unico que se ve
@@ -742,7 +747,7 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="numero_predial_nacional",
         color="#00b4d8",
         naturaleza="estatica",
-        zoom_min=15,
+        zoom_min=16,
         zoom_max=16,
         nota="El lindero del predio, que es la unidad sobre la que se reclama. "
              "338.312 predios. Copia local del 15/08/2026.",
@@ -758,7 +763,7 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="numero_predial_nacional",
         color="#f77f00",
         naturaleza="estatica",
-        zoom_min=15,
+        zoom_min=16,
         zoom_max=16,
         simbologia={"campo": "tipo_construccion", "modo": "categorias",
                     "colores": CONSTRUCCION_CALI,

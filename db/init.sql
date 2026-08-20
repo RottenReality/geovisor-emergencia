@@ -201,6 +201,11 @@ CREATE TABLE IF NOT EXISTS catastro (
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE INDEX IF NOT EXISTS idx_catastro_fuente_geom ON catastro USING GIST (fuente, geom);
 
+-- La tabla de atributos ordena por id dentro de UNA capa. Sin este indice el
+-- planificador recorre la clave primaria descartando las filas de las otras
+-- cinco capas: casi un segundo por pagina, y creciendo con cada importacion.
+CREATE INDEX IF NOT EXISTS idx_catastro_fuente_id ON catastro (fuente, id);
+
 -- Que se importo, cuando y desde donde. Sin esto no hay forma de saber si una
 -- capa quedo a medias tras un corte de red durante la importacion.
 CREATE TABLE IF NOT EXISTS catastro_cargas (
