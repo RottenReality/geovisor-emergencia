@@ -191,8 +191,17 @@ function anadirCapa(destino, item) {
 
   // Las capas propias viven todas en la misma tesela vectorial y hay que
   // filtrar la que toca; una fuente externa es un GeoJSON suyo y entero.
+  // El catastro es la excepcion: tambien va en teselas, pero en las suyas.
   const externa = !!item.esExterna;
-  if (externa) {
+  const catastro = item.fuente?.tipo === 'catastro';
+  if (catastro) {
+    destino.addSource('cmp', {
+      type: 'vector',
+      tiles: [`${location.origin}/api/externas/${item.id}/teselas/{z}/{x}/{y}.pbf`],
+      minzoom: item.fuente.zoom_min ?? 15,
+      maxzoom: item.fuente.zoom_max ?? 16,
+    });
+  } else if (externa) {
     destino.addSource('cmp', {
       type: 'geojson',
       data: `${location.origin}/api/externas/${item.id}.geojson`,
@@ -211,7 +220,8 @@ function anadirCapa(destino, item) {
   const esPunto = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false];
   const soloCapa = externa ? null : ['==', ['get', 'capa_id'], item.id];
   const solo = (tipo) => (soloCapa ? ['all', soloCapa, tipo] : tipo);
-  const origen = externa ? {} : { 'source-layer': 'elementos' };
+  const origen = catastro ? { 'source-layer': 'catastro' }
+    : externa ? {} : { 'source-layer': 'elementos' };
   // Mismo color (o misma simbologia tematica) que en el mapa principal, para
   // que comparar no cambie el codigo de colores a mitad de analisis.
   const color = expresionColor(item);

@@ -91,7 +91,10 @@ export async function fijar(clave, cambios) {
  *  despues reaprovecha de su cache, y a cambio se sabe en el acto cuantos
  *  elementos trajo y si la fuente esta caida. */
 async function precargar(fuente) {
-  if (fuente.tipo === 'imagen') return;
+  // El catastro no se descarga: se sirve en teselas desde la copia local, y
+  // cuantas hay ya viene en el catalogo. Pedirle el .geojson serviria medio
+  // millon de poligonos de golpe, que es justo lo que no puede pasar.
+  if (fuente.tipo === 'imagen' || fuente.tipo === 'catastro') return;
   const datos = await api(`/api/externas/${fuente.clave}.geojson`);
   totales[fuente.clave] = datos.features.length;
   sinUbicacion[fuente.clave] = datos.sin_ubicacion || 0;
@@ -173,6 +176,14 @@ async function abrir() {
 /** Cuenta cuantas hay y de cuando, sin volver a pedir los datos. */
 function pista(fuente) {
   if (fuente.tipo === 'imagen') return 'ortoimagen';
+  if (fuente.tipo === 'catastro') {
+    const cuantas = fuente.total == null ? 'sin importar'
+      : `${fuente.total.toLocaleString('es-CO')} polígonos`;
+    // El zoom minimo se dice aqui y no en una advertencia al encenderla:
+    // encender una capa y no ver nada parece una capa rota, y esa duda en
+    // plena emergencia cuesta mas que una linea de texto en el catalogo.
+    return `${cuantas} · desde zoom ${fuente.zoom_min}${fuente.cargando ? ' · IMPORTANDO' : ''}`;
+  }
   const total = totales[fuente.clave] ?? fuente.total;
   if (total == null) return '';
   const edad = fuente.descargado;

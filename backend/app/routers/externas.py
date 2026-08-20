@@ -24,11 +24,12 @@ import os
 import time
 import zipfile
 
+import asyncpg
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from .. import config, db, fuentes, visitados
+from .. import config, db, fuentes, importar_catastro, visitados
 from ..fechas import legible as fecha_legible
 from .. import pila as pila_logica
 from ..auth import requiere_sesion
@@ -414,6 +415,8 @@ def _ficha(fuente: fuentes.Fuente) -> dict:
         "formulario": fuente.formulario,
         "simbologia": fuente.simbologia,
         "minutos": fuente.minutos,
+        "zoom_min": fuente.zoom_min,
+        "zoom_max": fuente.zoom_max,
         # Lo ya descargado, para que el catalogo pueda decir cuantas hay y de
         # cuando son sin volver a pedirlas.
         "total": guardado[2] if guardado else None,
@@ -435,6 +438,21 @@ async def catalogo():
     for ficha in fichas:
         if ficha["clave"] in acotadas:
             ficha["bounds"] = acotadas[ficha["clave"]]
+
+    # Las catastrales no se descargan al vuelo, asi que su total no sale de la
+    # cache sino de lo que hay importado. `completa` distingue una capa lista
+    # de una que se quedo a medias, que de otro modo solo se notaria echando
+    # en falta predios sobre el mapa.
+    cargas = await importar_catastro.cuantas()
+    for ficha in fichas:
+        carga = cargas.get(ficha["clave"])
+        if carga:
+            ficha["total"] = carga["entidades"]
+            ficha["cargando"] = not carga["completa"]
+            if carga["bbox"]:
+                # Sirve para dos cosas: encuadrar el mapa sobre la capa de un
+                # clic, y decirle a MapLibre que fuera de Cali no pida teselas.
+                ficha["bounds"] = [float(v) for v in carga["bbox"]]
 
     publicadas = await db.pool().fetch(
         "SELECT clave, visible, opacidad, radio FROM externas")
@@ -536,6 +554,13 @@ def _buscar(clave: str) -> fuentes.Fuente:
 @router.get("/{clave}.geojson")
 async def datos(clave: str):
     fuente = _buscar(clave)
+    if fuente.tipo == "catastro":
+        # Serviria medio millon de poligonos en una sola respuesta y tumbaria
+        # el proceso. Se dice donde estan en vez de devolver un 500 opaco.
+        raise HTTPException(
+            status_code=400,
+            detail="Esa capa se sirve en teselas: /api/externas/"
+                   f"{clave}/teselas/{{z}}/{{x}}/{{y}}.pbf")
     cuerpo, _ = await _obtener(fuente)
     return Response(
         content=cuerpo,
@@ -643,6 +668,146 @@ async def tesela(clave: str, z: int, x: int, y: int):
     )
 
 
+# Consulta de tesela para las capas catastrales.
+#
+# Lleva los atributos DENTRO de la tesela, al contrario que /api/tiles de las
+# capas propias, que solo lleva el id y consulta el resto al abrir la ficha.
+# La diferencia es deliberada: alli los atributos se editan y el color se
+# recalcula, asi que cocerlos en la tesela obligaria a reconstruirlas en cada
+# cambio. El catastro es una copia de solo lectura de una foto fija, asi que
+# no hay nada que invalidar, y a cambio el globo del predio abre sin esperar
+# una segunda peticion. La lista blanca ya se aplico al importar.
+_TESELA_CATASTRO = """
+WITH b AS (
+  SELECT ST_TileEnvelope($2, $3, $4) AS env
+),
+f AS (
+  SELECT c.props,
+         ST_AsMVTGeom(ST_Transform(c.geom, 3857), b.env, 4096, 64, true) AS geom
+  FROM catastro c
+  CROSS JOIN b
+  WHERE c.fuente = $1
+    AND c.geom && ST_Transform(b.env, 4326)
+)
+SELECT ST_AsMVT(f, 'catastro', 4096, 'geom') FROM f WHERE geom IS NOT NULL
+"""
+
+
+@router.get("/{clave}/teselas/{z}/{x}/{y}.pbf")
+async def tesela_vector(clave: str, z: int, x: int, y: int):
+    """Teselas MVT de una capa catastral, servidas desde la copia local."""
+    fuente = _buscar(clave)
+    if fuente.tipo != "catastro":
+        raise HTTPException(status_code=400, detail="Esa fuente no se sirve en teselas")
+    if not 0 <= z <= 22:
+        raise HTTPException(status_code=400, detail="Zoom fuera de rango")
+    # El navegador ya respeta el zoom_min de la fuente, pero el endpoint es
+    # publico dentro de la sesion: sin este tope, una peticion suelta a z8
+    # pondria a PostGIS a codificar medio millon de poligonos en una tesela.
+    if z < fuente.zoom_min:
+        raise HTTPException(
+            status_code=404,
+            detail=f"El catastro no se dibuja por debajo del zoom {fuente.zoom_min}")
+
+    try:
+        dato = await db.pool().fetchval(_TESELA_CATASTRO, clave, z, x, y)
+    except asyncpg.exceptions.UndefinedTableError as excepcion:
+        # La capa esta en el catalogo pero la copia local no se ha creado. Un
+        # 500 por tesela llenaria la consola de errores rojos sin decir que
+        # hacer; esto sale una vez y dice exactamente que falta.
+        raise HTTPException(
+            status_code=503,
+            detail="El catastro todavía no está importado en este servidor.") from excepcion
+    return Response(
+        content=bytes(dato or b""),
+        media_type="application/vnd.mapbox-vector-tile",
+        # Copia local de una foto fija: no cambia hasta que alguien reimporte,
+        # asi que moverse por la ciudad no tiene por que repetir consultas.
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
+# Tope de filas por peticion, igual que en la tabla de las capas propias.
+MAX_FILAS_CATASTRO = 200
+
+# Hasta donde se cuenta al buscar. Contar exacto obliga a recorrer las 406.000
+# filas de la capa comparando texto, y son varios segundos con la tabla en
+# blanco. Quien busca un predio quiere la fila, no el censo: se cuenta hasta
+# aqui y por encima la tabla dice "mas de 10.000", que es la respuesta util.
+TOPE_CUENTA_CATASTRO = 10000
+
+
+@router.get("/{clave}/tabla")
+async def tabla_catastro(clave: str, pagina: int = 0, limite: int = 100,
+                         buscar: str = "", orden: str = "", descendente: bool = False):
+    """Atributos de una capa catastral, paginados en el servidor.
+
+    Las demas fuentes externas paginan en el navegador, porque su GeoJSON ya
+    esta descargado y tiene tope de 8.000 entidades. Aqui son cientos de miles
+    de filas que nunca llegan enteras al navegador, asi que la paginacion, la
+    busqueda y el orden los hace PostGIS, igual que en las capas propias.
+    """
+    fuente = _buscar(clave)
+    if fuente.tipo != "catastro":
+        raise HTTPException(status_code=400, detail="Esa fuente no tiene tabla en el servidor")
+
+    limite = max(1, min(MAX_FILAS_CATASTRO, limite))
+    pagina = max(0, pagina)
+    # Las columnas se saben de antemano: son la lista blanca del catalogo. No
+    # hace falta muestrear el JSONB como en las capas propias, donde el
+    # esquema lo trae cada archivo que alguien sube.
+    columnas = list(fuente.campos)
+
+    patron = f"%{buscar.strip()}%" if buscar.strip() else None
+    filtro = "fuente = $1 AND ($2::text IS NULL OR props::text ILIKE $2)"
+
+    if patron is None:
+        # Sin busqueda el total ya esta contado desde la importacion.
+        total = await db.pool().fetchval(
+            "SELECT entidades FROM catastro_cargas WHERE fuente = $1", clave) or 0
+        aproximado = False
+    else:
+        total = await db.pool().fetchval(
+            f"SELECT COUNT(*) FROM (SELECT 1 FROM catastro WHERE {filtro} "
+            f"LIMIT {TOPE_CUENTA_CATASTRO + 1}) t", clave, patron)
+        aproximado = total > TOPE_CUENTA_CATASTRO
+        total = min(total, TOPE_CUENTA_CATASTRO)
+
+    # El criterio de orden NO se interpola: o es una columna conocida y va
+    # como parametro dentro de props ->> $n, o se cae al id.
+    if orden in columnas:
+        expresion, argumentos = "props ->> $5", [orden]
+    else:
+        expresion, argumentos = "id", []
+    sentido = "DESC" if descendente else "ASC"
+
+    filas = await db.pool().fetch(
+        f"""
+        SELECT id, props,
+               ARRAY[ST_XMin(geom), ST_YMin(geom), ST_XMax(geom), ST_YMax(geom)] AS caja
+        FROM catastro
+        WHERE {filtro}
+        ORDER BY {expresion} {sentido} NULLS LAST, id
+        LIMIT $3 OFFSET $4
+        """,
+        clave, patron, limite, pagina * limite, *argumentos,
+    )
+
+    return {
+        "columnas": columnas,
+        "total": total,
+        "aproximado": aproximado,
+        "pagina": pagina,
+        "limite": limite,
+        "filas": [{
+            "id": f["id"],
+            "nombre": None,
+            "caja": [float(v) for v in f["caja"]] if f["caja"] else None,
+            "propiedades": json.loads(f["props"]),
+        } for f in filas],
+    }
+
+
 class Copia(BaseModel):
     nombre: str | None = None
 
@@ -657,6 +822,14 @@ async def copiar(clave: str, datos_entrada: Copia, sesion: dict = Depends(requie
     puede simbolizar, filtrar, medir en 9377 y exportar como cualquier otra.
     """
     fuente = _buscar(clave)
+    if fuente.tipo == "catastro":
+        # Copiar sirve para congelar una fuente que cambia bajo los pies. El
+        # catastro no cambia -es una foto fija ya copiada aqui- y volcarlo a
+        # `elementos` meteria medio millon de poligonos en la tabla de dibujo
+        # del equipo, con lo que eso hace a cada tesela propia.
+        raise HTTPException(
+            status_code=400,
+            detail="El catastro ya es una copia local y no cambia: no hay nada que congelar.")
     cuerpo, _ = await _obtener(fuente)
     coleccion = json.loads(cuerpo)
     if not coleccion.get("features"):

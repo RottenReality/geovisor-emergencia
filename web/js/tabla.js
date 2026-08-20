@@ -27,6 +27,7 @@ let columnas = [];
 let filas = [];           // pagina en pantalla, ya normalizada
 let todas = null;         // solo externas: el GeoJSON entero
 let total = 0;
+let aproximado = false;   // solo catastro: la cuenta al buscar va con tope
 let pagina = 0;
 let buscar = '';
 let orden = '';
@@ -73,16 +74,40 @@ async function recargar() {
   const mirando = item;
   $('tabla-cuerpo').setAttribute('aria-busy', 'true');
   try {
-    if (item.esExterna) await deLaFuenteExterna();
+    if (item.fuente?.tipo === 'catastro') await delServidorCatastro();
+    else if (item.esExterna) await deLaFuenteExterna();
     else await delServidor();
   } catch (error) {
     avisar(error.message, true);
-    columnas = []; filas = []; total = 0;
+    columnas = []; filas = []; total = 0; aproximado = false;
   }
   // Si mientras se pedia se abrio otra capa, esta respuesta ya no vale.
   if (item !== mirando) return;
   $('tabla-cuerpo').removeAttribute('aria-busy');
   pintar();
+}
+
+/** El catastro pagina en el servidor, como las capas propias.
+ *
+ *  Las demas fuentes externas se paginan en el navegador porque su GeoJSON ya
+ *  esta descargado entero. El catastro nunca llega entero: son hasta 406.000
+ *  filas por capa, asi que la busqueda y el orden los hace PostGIS. */
+async function delServidorCatastro() {
+  const parametros = new URLSearchParams({
+    pagina, limite: POR_PAGINA, buscar, orden,
+    descendente: descendente ? 'true' : 'false',
+  });
+  const datos = await api(`/api/externas/${item.id}/tabla?${parametros}`);
+  // Sin columna "nombre": el catastro no tiene una etiqueta propia, su
+  // identificador es el numero predial y ya viene entre los atributos.
+  columnas = ['id', ...datos.columnas];
+  total = datos.total;
+  aproximado = Boolean(datos.aproximado);
+  filas = datos.filas.map((f) => ({
+    id: f.id,
+    caja: f.caja,
+    valores: { id: f.id, ...f.propiedades },
+  }));
 }
 
 async function delServidor() {
@@ -93,6 +118,7 @@ async function delServidor() {
   const datos = await api(`/api/capas/${item.id}/tabla?${parametros}`);
   columnas = ['id', 'nombre', ...datos.columnas];
   total = datos.total;
+  aproximado = false;
   filas = datos.filas.map((f) => ({
     id: f.id,
     caja: f.caja,
@@ -123,6 +149,7 @@ async function deLaFuenteExterna() {
     vistas = [...vistas].sort((a, b) => signo * comparar(a.valores[orden], b.valores[orden]));
   }
   total = vistas.length;
+  aproximado = false;
   filas = vistas.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA);
 }
 
@@ -168,7 +195,10 @@ function celda(valor) {
 
 function pintar() {
   const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
-  $('tabla-conteo').textContent = `${total.toLocaleString('es-CO')}${
+  // "10.000+" y no "10.000": al buscar sobre el catastro la cuenta se corta
+  // en el tope, y dar la cifra redonda como exacta seria mentir sobre cuantos
+  // predios coinciden.
+  $('tabla-conteo').textContent = `${total.toLocaleString('es-CO')}${aproximado ? '+' : ''}${
     buscar.trim() ? ' encontrados' : ' elementos'}`;
   $('tabla-pagina').textContent = `${pagina + 1} / ${paginas}`;
   $('tabla-anterior').disabled = pagina === 0;

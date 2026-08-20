@@ -172,6 +172,58 @@ CREATE TABLE IF NOT EXISTS subidas (
 CREATE INDEX IF NOT EXISTS idx_subidas_actualizado ON subidas (actualizado_en);
 
 -- ---------------------------------------------------------------------------
+-- Catastro de referencia.
+--
+-- Copia local de capas catastrales publicas (predios, terrenos y
+-- construcciones). Son 1,5 millones de poligonos: no caben en el mecanismo de
+-- fuentes externas, que descarga la capa entera y la cachea en memoria. Aqui
+-- se guardan una vez y se sirven como teselas vectoriales generadas en
+-- PostGIS, igual que las capas propias.
+--
+-- Tabla aparte de `elementos` A PROPOSITO. `elementos` es lo que el equipo
+-- dibuja y edita: mezclar ahi un millon y medio de poligonos de solo lectura
+-- ensuciaria el dibujo, la ficha y el export, y multiplicaria por veinte el
+-- coste de cada tesela propia.
+--
+-- Es dato reimportable desde el servicio de origen, asi que deploy.sh respalda
+-- la estructura pero NO las filas. Sin eso cada despliegue arrastraria un giga.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS catastro (
+  id      BIGSERIAL PRIMARY KEY,
+  fuente  TEXT NOT NULL,                       -- clave del catalogo (fuentes.py)
+  props   JSONB NOT NULL DEFAULT '{}'::jsonb,
+  geom    GEOMETRY(Geometry, 4326) NOT NULL
+);
+
+-- El indice espacial lleva la clave delante: toda consulta de tesela filtra
+-- por fuente Y por caja, y sin la fuente dentro del indice cada tesela de una
+-- capa rural recorreria tambien las 650.000 construcciones urbanas.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+CREATE INDEX IF NOT EXISTS idx_catastro_fuente_geom ON catastro USING GIST (fuente, geom);
+
+-- Que se importo, cuando y desde donde. Sin esto no hay forma de saber si una
+-- capa quedo a medias tras un corte de red durante la importacion.
+CREATE TABLE IF NOT EXISTS catastro_cargas (
+  fuente     TEXT PRIMARY KEY,
+  entidades  BIGINT  NOT NULL DEFAULT 0,
+  omitidas   BIGINT  NOT NULL DEFAULT 0,
+  origen     TEXT,
+  completa   BOOLEAN NOT NULL DEFAULT false,
+  cargado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Por donde iba la descarga. Bajar 1,5 millones de poligonos del servicio de
+-- Cali son ~20 minutos de red publica: guardar el ultimo OBJECTID confirmado
+-- permite reanudar donde se corto en vez de empezar de cero.
+ALTER TABLE catastro_cargas ADD COLUMN IF NOT EXISTS ultimo_oid BIGINT NOT NULL DEFAULT 0;
+
+-- Envolvente de la capa, medida una vez al terminar de importar. Es lo que
+-- permite encuadrar el mapa sobre la capa de un clic. No se calcula al vuelo
+-- porque ST_Extent sobre 406.000 poligonos no usa el indice espacial y son
+-- varios segundos cada vez que alguien abre el catalogo.
+ALTER TABLE catastro_cargas ADD COLUMN IF NOT EXISTS bbox DOUBLE PRECISION[];
+
+-- ---------------------------------------------------------------------------
 -- Vista oficial Colombia -- MAGNA-SIRGAS / Origen-Nacional (EPSG:9377),
 -- proyeccion oficial segun Resolucion 471 de 2020 del IGAC.
 --

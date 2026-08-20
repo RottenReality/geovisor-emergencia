@@ -623,7 +623,7 @@ function pintarFilaExterna(item) {
              title="Abre el formulario de captura en una pestaña nueva">
             &#10010; Llenar el formulario
           </a>` : ''}
-        ${item.esImagen ? '' : `
+        ${item.esImagen || item.fuente.tipo === 'catastro' ? '' : `
           <button data-accion="copiar" style="width:100%;margin-top:8px">
             Guardar copia fechada como capa
           </button>`}

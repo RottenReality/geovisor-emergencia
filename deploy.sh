@@ -17,7 +17,12 @@ if docker ps --format '{{.Names}}' | grep -qx geo_db; then
   log "Respaldando base antes de actualizar"
   mkdir -p respaldos
   set -a; . ./.env; set +a
+  # El catastro va SIN sus filas: es una copia de solo lectura de un servicio
+  # publico, reimportable con `python -m app.catastro`, y son ~1 GB que si no
+  # se arrastrarian en cada respaldo de cada despliegue. La estructura si va,
+  # para que restaurar deje la base lista para reimportar.
   docker exec geo_db pg_dump -U "${POSTGRES_USER:-geovisor}" -d "${POSTGRES_DB:-geovisor}" \
+    --exclude-table-data=catastro \
     | gzip > "respaldos/pre-deploy-$(date +%F-%H%M).sql.gz"
   echo "    guardado en respaldos/"
 fi

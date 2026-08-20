@@ -200,6 +200,22 @@ const esImagen = (item) => Boolean(item.esRaster || item.esImagen);
 
 const PARTES_VECTOR = ['-relleno', '-borde', '-punto'];
 
+/** Las capas catastrales no llegan como GeoJSON sino como teselas propias. */
+const esCatastro = (item) => item.fuente?.tipo === 'catastro';
+
+/**
+ * Opacidad del relleno de una capa vectorial externa.
+ *
+ * El catastro va mas transparente que el resto A PROPOSITO. En una capa
+ * normal los poligonos no se pisan, asi que 0,32 es un relleno legible. En el
+ * catastro si se pisan -las plantas de un edificio se superponen casi por
+ * completo- y MapLibre compone cada una sobre la anterior: a 0,32 una torre
+ * de diez plantas sale negra y no se distingue nada. A 0,16 el apilamiento se
+ * lee como lo que es, un degradado por altura, y el borde sigue marcando cada
+ * planta.
+ */
+const opacidadRelleno = (item) => (esCatastro(item) ? 0.16 : 0.32);
+
 /**
  * Monta una fuente externa.
  *
@@ -237,6 +253,41 @@ function montarExterna(item, clave) {
       });
     }
     mapa.addLayer({ id: clave, type: 'raster', source: clave, paint: { 'raster-opacity': 1 } });
+    return;
+  }
+
+  // El catastro son 1,5 millones de poligonos: no cabe en un GeoJSON. Va como
+  // teselas vectoriales generadas en PostGIS desde la copia local, igual que
+  // las capas del equipo, y con los atributos ya dentro de la tesela.
+  if (esCatastro(item)) {
+    const fuente = item.fuente;
+    if (!mapa.getSource(clave)) {
+      mapa.addSource(clave, {
+        type: 'vector',
+        tiles: [`${location.origin}/api/externas/${item.id}/teselas/{z}/{x}/{y}.pbf`],
+        // Por debajo de minzoom no se pide nada: una tesela z14 del centro de
+        // Cali son 32.000 poligonos y lo que se veria seria una mancha.
+        minzoom: fuente.zoom_min ?? 15,
+        // maxzoom NO es hasta donde se ve, sino hasta donde se genera. Por
+        // encima MapLibre reescala la ultima tesela, que dibuja exactamente
+        // los mismos poligonos sin pedir 256 teselas mas.
+        maxzoom: fuente.zoom_max ?? 16,
+        bounds: item.bounds || undefined,
+      });
+    }
+    const colorCatastro = expresionColor(item);
+    const origen = { source: clave, 'source-layer': 'catastro' };
+    mapa.addLayer({
+      id: `${clave}-relleno`, type: 'fill', ...origen,
+      paint: { 'fill-color': colorCatastro, 'fill-opacity': opacidadRelleno(item) },
+    });
+    mapa.addLayer({
+      id: `${clave}-borde`, type: 'line', ...origen,
+      // Fino y a media opacidad: con los linderos pegados unos a otros, una
+      // linea de 1,6 px como la de las demas capas los funde en una retícula
+      // solida en cuanto te alejas de la manzana.
+      paint: { 'line-color': colorCatastro, 'line-width': 0.7, 'line-opacity': 0.9 },
+    });
     return;
   }
 
@@ -380,11 +431,12 @@ export function aplicarEstilos(items) {
     const color = expresionColor(item);
     if (mapa.getLayer(`${clave}-relleno`)) {
       mapa.setPaintProperty(`${clave}-relleno`, 'fill-color', color);
-      mapa.setPaintProperty(`${clave}-relleno`, 'fill-opacity', 0.32 * opacidad);
+      mapa.setPaintProperty(`${clave}-relleno`, 'fill-opacity', opacidadRelleno(item) * opacidad);
     }
     if (mapa.getLayer(`${clave}-borde`)) {
       mapa.setPaintProperty(`${clave}-borde`, 'line-color', color);
-      mapa.setPaintProperty(`${clave}-borde`, 'line-opacity', opacidad);
+      mapa.setPaintProperty(`${clave}-borde`, 'line-opacity',
+                            (esCatastro(item) ? 0.9 : 1) * opacidad);
     }
     if (mapa.getLayer(`${clave}-punto`)) {
       mapa.setPaintProperty(`${clave}-punto`, 'circle-color', color);

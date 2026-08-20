@@ -57,6 +57,8 @@ TEMAS = (
      "Albergues, acopio, salud y servicios activos."),
     ("contexto", "Contexto del sismo",
      "Epicentro, intensidad y activaciones internacionales."),
+    ("catastro", "Catastro de referencia",
+     "Predios, terrenos y construcciones. Base para ubicar un daño en un predio concreto."),
 )
 
 
@@ -71,6 +73,7 @@ class Fuente:
       lista     JSON con un arreglo de objetos que llevan latitud y longitud
       gdacs     un Feature suelto de la API de GDACS
       visitados API autenticada de la Alcaldia de Cali (Basic Auth + ventana)
+      catastro  copia local en PostGIS -> teselas vectoriales propias
       enlace    no se integra; se muestra en el catalogo con el motivo
     """
     clave: str
@@ -106,6 +109,18 @@ class Fuente:
     lat: str = "lat"
     lon: str = "lon"
     enlaces: dict = field(default_factory=dict)   # {campo: prefijo a anteponer}
+    # Solo para tipo 'catastro'. Zoom entre el que se piden teselas.
+    #
+    # zoom_min existe porque el catastro no se puede dibujar a escala de
+    # ciudad: una tesela z14 del centro de Cali son 32.000 poligonos, y lo
+    # que se veria seria una mancha negra. Por debajo de este zoom la capa
+    # simplemente no se pide.
+    #
+    # zoom_max NO es hasta donde se ve, sino hasta donde se GENERA: por encima
+    # el navegador reescala la ultima tesela. Sin el, mirar una manzana a z20
+    # pediria 256 teselas para dibujar exactamente los mismos poligonos.
+    zoom_min: int = 15
+    zoom_max: int = 16
     # Solo para tipo 'enlace'
     motivo: str = ""
 
@@ -170,6 +185,25 @@ VISITADOS_DESDE_UTC = 1785542400000    # 2026-08-01 00:00 UTC
 DRP = "https://services.arcgis.com/vC1CdlKWEAtuT38d/arcgis/rest/services/"
 IGAC_ORTO = "https://mapas2.igac.gov.co/image2/rest/services/orto/"
 INVIAS = "https://hermes.invias.gov.co/arcgis/rest/services/OpenData/ServiciosOpenData/FeatureServer"
+CATASTRO_CALI = ("https://services8.arcgis.com/ljfiJpg35HWgdtaC/arcgis/rest/services/"
+                 "Validacion_geografica_WFL1/FeatureServer")
+
+# Tipo de construccion en el catastro urbano de Cali. Interesa un solo corte:
+# la construccion NO convencional (unas 11.000 de 651.000) es la informal, que
+# es donde el sismo hace mas dano, asi que va en rojo y el resto en gris.
+#
+# El servicio trae el valor con erratas -"No__Convencional", "N o_Convencional",
+# con espacio delante- en unos 260 registros. No se corrigen al importar: el
+# dato se guarda tal como lo publica la fuente, y esos caen en el color por
+# defecto. Son el 0,04% de la capa.
+CONSTRUCCION_CALI = {
+    "Convencional": "#8d99ae",
+    "No_convencional": "#e63946",
+}
+CONSTRUCCION_CALI_ETIQUETAS = {
+    "Convencional": "Convencional",
+    "No_convencional": "No convencional (informal)",
+}
 
 
 def _orto(ciudad: str, ruta: str, clave: str) -> Fuente:
@@ -659,6 +693,132 @@ CATALOGO: tuple[Fuente, ...] = (
         naturaleza="semi-estatica",
         nota="Inventario nacional con la fecha de última inspección de cada puente. Sirve "
              "para priorizar cuáles revisar tras el sismo; no dice si están dañados.",
+    ),
+
+    # -- Catastro de referencia ---------------------------------------------
+    # Catastro multiproposito del IGAC para Cali, publicado por Planeacion de
+    # Cali. Son 1,5 millones de poligonos entre las seis capas: NO se consultan
+    # en vivo como el resto del catalogo, sino que se copian una vez a PostGIS
+    # y se sirven como teselas vectoriales propias. El porque esta en
+    # catastro.py; el resumen es que una pantalla a nivel de barrio son 180.000
+    # poligonos y el mecanismo en vivo tiene un tope de 8.000.
+    #
+    # Las seis son una carga masiva unica del 15 de agosto de 2026: las seis
+    # capas comparten el mismo EditDate maximo con 21 segundos de diferencia y
+    # no se han tocado desde entonces. Por eso una copia local no se desactualiza.
+    Fuente(
+        clave="catastro-cali-urbano-unidad-construccion",
+        nombre="Unidades de construcción · urbano (Cali)",
+        organizacion="IGAC · Planeación de Cali",
+        tema="catastro",
+        tipo="catastro",
+        url=CATASTRO_CALI + "/1",
+        campos=("numero_predial_nacional", "identificador", "planta_ubicacion",
+                "tipo_planta", "tipo_construccion", "total_pisos",
+                "anio_construccion", "id_unico_construccion"),
+        titulo="numero_predial_nacional",
+        color="#9b5de5",
+        naturaleza="estatica",
+        zoom_min=15,
+        zoom_max=16,
+        # Un color por planta. Sin esto la capa es ilegible: las plantas de un
+        # mismo edificio se superponen casi por completo y lo unico que se ve
+        # es un borron mas oscuro cuanto mas alto es el edificio. Coloreando
+        # por planta se distingue el zocalo de la torre de un vistazo.
+        simbologia={"campo": "planta_ubicacion", "modo": "rangos",
+                    "cortes": [1, 2, 3, 5, 10, 30],
+                    "colores": ["#ffedbe", "#fdc47a", "#f4845f", "#c9457a", "#7b2cbf"]},
+        nota="Una fila por PLANTA, no por edificio: 406.048 filas sobre 174.167 predios. "
+             "Incluye sótanos, semisótanos y mezanines. Copia local del 15/08/2026.",
+    ),
+    Fuente(
+        clave="catastro-cali-urbano-terreno",
+        nombre="Terrenos · urbano (Cali)",
+        organizacion="IGAC · Planeación de Cali",
+        tema="catastro",
+        tipo="catastro",
+        url=CATASTRO_CALI + "/2",
+        campos=("numero_predial_nacional", "numero_predial_manzana", "area_terreno"),
+        titulo="numero_predial_nacional",
+        color="#00b4d8",
+        naturaleza="estatica",
+        zoom_min=15,
+        zoom_max=16,
+        nota="El lindero del predio, que es la unidad sobre la que se reclama. "
+             "338.312 predios. Copia local del 15/08/2026.",
+    ),
+    Fuente(
+        clave="catastro-cali-urbano-construccion",
+        nombre="Construcciones · urbano (Cali)",
+        organizacion="IGAC · Planeación de Cali",
+        tema="catastro",
+        tipo="catastro",
+        url=CATASTRO_CALI + "/3",
+        campos=("numero_predial_nacional", "tipo_construccion", "numero_pisos", "altura"),
+        titulo="numero_predial_nacional",
+        color="#f77f00",
+        naturaleza="estatica",
+        zoom_min=15,
+        zoom_max=16,
+        simbologia={"campo": "tipo_construccion", "modo": "categorias",
+                    "colores": CONSTRUCCION_CALI,
+                    "etiquetas": CONSTRUCCION_CALI_ETIQUETAS,
+                    "orden": ["No_convencional", "Convencional"]},
+        nota="La huella de cada construcción: 650.997. OJO con «numero_pisos» y «altura»: "
+             "248.282 filas (38%) traen ambos en 0, que aquí es «sin dato», no una "
+             "construcción de cero pisos. Copia local del 15/08/2026.",
+    ),
+    Fuente(
+        clave="catastro-cali-rural-unidades",
+        nombre="Unidades · rural (Cali)",
+        organizacion="IGAC · Planeación de Cali",
+        tema="catastro",
+        tipo="catastro",
+        url=CATASTRO_CALI + "/4",
+        campos=("etiqueta", "u_destinos", "pisopred", "edifpred", "tipo_avalu",
+                "sector", "comuna", "barrio", "manzana", "terreno", "predio", "numepred"),
+        titulo="etiqueta",
+        color="#7209b7",
+        naturaleza="estatica",
+        zoom_min=13,
+        zoom_max=16,
+        nota="43.353 unidades. Pese al nombre incluye propiedad horizontal («APTO 402», "
+             "«PARQUEADERO 166»): es la base rural del catastro, no solo suelo rural. "
+             "Copia local del 15/08/2026.",
+    ),
+    Fuente(
+        clave="catastro-cali-rural-terreno",
+        nombre="Terrenos · rural (Cali)",
+        organizacion="IGAC · Planeación de Cali",
+        tema="catastro",
+        tipo="catastro",
+        url=CATASTRO_CALI + "/5",
+        campos=("idterreno", "npn", "nom_edific", "etiqueta", "tipo_avalu",
+                "sector", "comuna", "barrio", "manzana", "terreno", "predio", "numepred"),
+        titulo="idterreno",
+        color="#06a77d",
+        naturaleza="estatica",
+        zoom_min=13,
+        zoom_max=16,
+        nota="18.196 terrenos. El número predial nacional («npn») solo viene en el 6%; "
+             "el identificador utilizable es «idterreno». Copia local del 15/08/2026.",
+    ),
+    Fuente(
+        clave="catastro-cali-rural-construcciones",
+        nombre="Construcciones · rural (Cali)",
+        organizacion="IGAC · Planeación de Cali",
+        tema="catastro",
+        tipo="catastro",
+        url=CATASTRO_CALI + "/6",
+        campos=("etiqueta", "npisos", "u_destinos", "tipo_cons", "edifpred", "tipo_avalu",
+                "sector", "comuna", "barrio", "manzana", "terreno", "predio", "numepred"),
+        titulo="etiqueta",
+        color="#d62828",
+        naturaleza="estatica",
+        zoom_min=13,
+        zoom_max=16,
+        nota="47.429 construcciones. «npisos» viene en el 98%, al contrario que en la capa "
+             "urbana. Copia local del 15/08/2026.",
     ),
 
     # -- No integradas ------------------------------------------------------
