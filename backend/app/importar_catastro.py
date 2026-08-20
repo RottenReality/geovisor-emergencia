@@ -45,12 +45,16 @@ async def _guardar(conexion, clave: str, lote: list[dict], campos: tuple[str, ..
         return 0, omitidas
 
     try:
-        await conexion.execute(catastro.SQL_INSERTAR, clave, props, geoms)
+        # El intento en bloque va DENTRO de su propio savepoint. Sin el, al
+        # fallar dejaria la transaccion de quien llama en estado abortado, y
+        # entonces PostgreSQL rechaza cualquier sentencia siguiente -incluido
+        # abrir los savepoints del reintento fila a fila-, asi que una sola
+        # geometria mala no tumbaria el lote sino la importacion entera.
+        async with conexion.transaction():
+            await conexion.execute(catastro.SQL_INSERTAR, clave, props, geoms)
         return len(props), omitidas
     except Exception:
-        # En PostgreSQL un error aborta la transaccion entera, asi que una
-        # sola geometria corrupta tumbaria el lote de 2.000. Se reintenta fila
-        # a fila con savepoint para quedarse con las 1.999 buenas.
+        # Se reintenta fila a fila para quedarse con las 1.999 buenas.
         pass
 
     insertadas = 0
