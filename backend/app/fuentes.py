@@ -194,20 +194,37 @@ CATASTRO_CALI = ("https://services8.arcgis.com/ljfiJpg35HWgdtaC/arcgis/rest/serv
                  "Validacion_geografica_WFL1/FeatureServer")
 
 # Tipo de construccion en el catastro urbano de Cali. Interesa un solo corte:
-# la construccion NO convencional (unas 11.000 de 651.000) es la informal, que
-# es donde el sismo hace mas dano, asi que va en rojo y el resto en gris.
+# la construccion NO convencional (10.970 de 650.975) es la informal, que es
+# donde el sismo hace mas dano, asi que va en rojo y el resto en gris.
 #
-# El servicio trae el valor con erratas -"No__Convencional", "N o_Convencional",
-# con espacio delante- en unos 260 registros. No se corrigen al importar: el
-# dato se guarda tal como lo publica la fuente, y esos caen en el color por
-# defecto. Son el 0,04% de la capa.
+# Las OCHO grafias no son un descuido: es como viene el dato. Y hay que
+# listarlas todas porque MapLibre casa la categoria con `match`, que distingue
+# mayusculas. Contarlas contra el servicio de ArcGIS no sirve para descubrirlo:
+# su GROUP BY agrupa sin distinguirlas y devuelve una sola grafia, asi que
+# declarar la que el responde deja fuera al 88% de las informales -9.501 de
+# 10.970 son "No_Convencional" con C mayuscula- pintadas del color de descarte
+# y ausentes de la leyenda. El recuento fiable es el de la copia local.
+#
+# El dato NO se normaliza al importar: se guarda tal como lo publica la fuente.
+# Quien lo consulte en la ficha vera la grafia real, y aqui esta escrito que
+# todas significan lo mismo.
+_INFORMAL = "#e63946"
 CONSTRUCCION_CALI = {
     "Convencional": "#8d99ae",
-    "No_convencional": "#e63946",
+    "No_Convencional": _INFORMAL,     # 9.501
+    "No_convencional": _INFORMAL,     # 1.215
+    "No Convencional": _INFORMAL,     #   248
+    " No_Convencional": _INFORMAL,    #     2
+    "N o_Convencional": _INFORMAL,    #     1
+    "No convencional": _INFORMAL,     #     1
+    "No__Convencional": _INFORMAL,    #     1
+    "nO_Convencional": _INFORMAL,     #     1
 }
+# Solo estas dos salen en la leyenda: `orden` manda sobre las claves de
+# `colores`, asi que las erratas colorean sin ensuciar lo que se lee en campo.
 CONSTRUCCION_CALI_ETIQUETAS = {
     "Convencional": "Convencional",
-    "No_convencional": "No convencional (informal)",
+    "No_Convencional": "No convencional (informal)",
 }
 
 
@@ -730,11 +747,21 @@ CATALOGO: tuple[Fuente, ...] = (
         # mismo edificio se superponen casi por completo y lo unico que se ve
         # es un borron mas oscuro cuanto mas alto es el edificio. Coloreando
         # por planta se distingue el zocalo de la torre de un vistazo.
+        #
+        # El ultimo corte separa 21..99, que NO son plantas: son 8.700 filas
+        # con valor 95 a 99, y en toda la capa no hay ni un solo valor entre
+        # 21 y 94. Ese hueco es lo que delata que son codigos de la fuente
+        # para lo que va encima de la ultima planta. Sin este corte caian en
+        # la clase de los edificios mas altos y se pintaban como una torre de
+        # veinte pisos, asi que van en gris: no es una altura.
         simbologia={"campo": "planta_ubicacion", "modo": "rangos",
-                    "cortes": [1, 2, 3, 5, 10, 30],
-                    "colores": ["#ffedbe", "#fdc47a", "#f4845f", "#c9457a", "#7b2cbf"]},
+                    "cortes": [1, 2, 3, 5, 10, 21, 100],
+                    "colores": ["#ffedbe", "#fdc47a", "#f4845f", "#c9457a",
+                                "#7b2cbf", "#8d99ae"]},
         nota="Una fila por PLANTA, no por edificio: 406.048 filas sobre 174.167 predios. "
-             "Incluye sótanos, semisótanos y mezanines. Copia local del 15/08/2026.",
+             "Incluye sótanos, semisótanos y mezanines. Los valores 95 a 99 (8.736 filas) "
+             "no son plantas: son códigos de la fuente para lo que va sobre la última, y "
+             "salen en gris. Copia local del 15/08/2026.",
     ),
     Fuente(
         clave="catastro-cali-urbano-terreno",
@@ -768,7 +795,7 @@ CATALOGO: tuple[Fuente, ...] = (
         simbologia={"campo": "tipo_construccion", "modo": "categorias",
                     "colores": CONSTRUCCION_CALI,
                     "etiquetas": CONSTRUCCION_CALI_ETIQUETAS,
-                    "orden": ["No_convencional", "Convencional"]},
+                    "orden": ["No_Convencional", "Convencional"]},
         nota="La huella de cada construcción: 650.997. OJO con «numero_pisos» y «altura»: "
              "248.282 filas (38%) traen ambos en 0, que aquí es «sin dato», no una "
              "construcción de cero pisos. Copia local del 15/08/2026.",
