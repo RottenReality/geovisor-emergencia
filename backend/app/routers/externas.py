@@ -759,7 +759,8 @@ async def tabla_catastro(clave: str, pagina: int = 0, limite: int = 100,
     columnas = list(fuente.campos)
 
     patron = f"%{buscar.strip()}%" if buscar.strip() else None
-    filtro = "fuente = $1 AND ($2::text IS NULL OR props::text ILIKE $2)"
+    # Con alias, porque las dos consultas de abajo llevan la tabla aliada.
+    filtro = "c.fuente = $1 AND ($2::text IS NULL OR c.props::text ILIKE $2)"
 
     if patron is None:
         # Sin busqueda el total ya esta contado desde la importacion.
@@ -768,30 +769,56 @@ async def tabla_catastro(clave: str, pagina: int = 0, limite: int = 100,
         aproximado = False
     else:
         total = await db.pool().fetchval(
-            f"SELECT COUNT(*) FROM (SELECT 1 FROM catastro WHERE {filtro} "
+            f"SELECT COUNT(*) FROM (SELECT 1 FROM catastro c WHERE {filtro} "
             f"LIMIT {TOPE_CUENTA_CATASTRO + 1}) t", clave, patron)
         aproximado = total > TOPE_CUENTA_CATASTRO
         total = min(total, TOPE_CUENTA_CATASTRO)
 
-    # El criterio de orden NO se interpola: o es una columna conocida y va
-    # como parametro dentro de props ->> $n, o se cae al id.
-    if orden in columnas:
-        expresion, argumentos = "props ->> $5", [orden]
-    else:
-        expresion, argumentos = "id", []
     sentido = "DESC" if descendente else "ASC"
+    caja = ("ARRAY[ST_XMin(c.geom), ST_YMin(c.geom), "
+            "ST_XMax(c.geom), ST_YMax(c.geom)] AS caja")
 
-    filas = await db.pool().fetch(
-        f"""
-        SELECT id, props,
-               ARRAY[ST_XMin(geom), ST_YMin(geom), ST_XMax(geom), ST_YMax(geom)] AS caja
-        FROM catastro
-        WHERE {filtro}
-        ORDER BY {expresion} {sentido} NULLS LAST, id
-        LIMIT $3 OFFSET $4
-        """,
-        clave, patron, limite, pagina * limite, *argumentos,
-    )
+    if patron is None and orden not in columnas:
+        # Camino rapido: hojear la capa de principio a fin, que es lo que se
+        # hace el 90% de las veces.
+        #
+        # La subconsulta existe para que PostgreSQL use idx_catastro_fuente_id.
+        # Preguntando directo con WHERE fuente=$1 ORDER BY id elige la clave
+        # primaria y filtra por fuente sobre la marcha; como cada capa se
+        # importa entera y seguida, sus ids caen todos juntos, y para la
+        # ultima importada eso significa descartar 762.000 filas antes de dar
+        # con la primera suya: 1,7 s por pagina. Asi la pagina sale del indice
+        # sin tocar la tabla y son 6 ms.
+        filas = await db.pool().fetch(
+            f"""
+            SELECT c.id, c.props, {caja}
+            FROM catastro c
+            WHERE c.id IN (SELECT id FROM catastro WHERE fuente = $1
+                           ORDER BY id {sentido} LIMIT $2 OFFSET $3)
+            ORDER BY c.id {sentido}
+            """,
+            clave, limite, pagina * limite,
+        )
+    else:
+        # Buscar u ordenar por un atributo obliga a mirar el JSONB de cada
+        # fila de la capa: no hay indice que sirva y no se finge que lo haya.
+        #
+        # El criterio de orden NO se interpola: o es una columna conocida y va
+        # como parametro dentro de props ->> $n, o se cae al id.
+        if orden in columnas:
+            expresion, argumentos = "props ->> $5", [orden]
+        else:
+            expresion, argumentos = "id", []
+        filas = await db.pool().fetch(
+            f"""
+            SELECT c.id, c.props, {caja}
+            FROM catastro c
+            WHERE {filtro}
+            ORDER BY c.{expresion} {sentido} NULLS LAST, c.id
+            LIMIT $3 OFFSET $4
+            """,
+            clave, patron, limite, pagina * limite, *argumentos,
+        )
 
     return {
         "columnas": columnas,
