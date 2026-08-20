@@ -602,10 +602,9 @@ function pintarFilaExterna(item) {
                 title="${escapar(item.fuente.organizacion)} — opciones">
           ${escapar(item.nombre)}
         </button>
-        <span class="estado tipo">ext</span>
         ${falta ? `
-          <span class="estado sin-zoom" title="Esta capa se dibuja desde el zoom ${falta}.
-Acércate, o abre las opciones y pulsa «Ir a la capa».">z${falta}+</span>` : ''}
+          <span class="estado sin-zoom" title="Fuente externa. Se dibuja desde el zoom ${falta}: acércate, o abre las opciones y pulsa «Ir a la capa».">z${falta}+</span>`
+          : '<span class="estado tipo">ext</span>'}
         <span class="conteo">${escapar(conteo)}</span>
         <button class="icono" data-accion="subir" ${pila.enElBorde(clave2, 'subir') ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
