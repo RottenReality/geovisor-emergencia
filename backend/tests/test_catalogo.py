@@ -46,6 +46,31 @@ class Coherencia(unittest.TestCase):
                               f"{fuente.clave}: simboliza por {campo}, que la "
                               f"lista blanca descarta")
 
+    def test_se_puede_filtrar_solo_por_lo_que_llega_al_navegador(self):
+        # El filtro se aplica sobre los atributos de la tesela, y la tesela
+        # solo lleva la lista blanca. Un campo filtrable que no este en
+        # `campos` da un desplegable que no filtra nada, sin ningun error.
+        for fuente in fuentes.CATALOGO:
+            if not (fuente.filtros and fuente.campos):
+                continue
+            for filtro in fuente.filtros:
+                self.assertIn(filtro["campo"], fuente.campos,
+                              f"{fuente.clave}: se puede filtrar por "
+                              f"{filtro['campo']}, que la lista blanca descarta")
+
+    def test_cada_filtro_dice_como_se_llama(self):
+        # Sin etiqueta, el panel mostraria el nombre crudo del campo del
+        # servicio ("u_destinos", "tipo_avalu"), que no dice nada en campo.
+        for fuente in fuentes.CATALOGO:
+            for filtro in fuente.filtros:
+                self.assertTrue(filtro.get("etiqueta"),
+                                f"{fuente.clave}: {filtro.get('campo')} sin etiqueta")
+
+    def test_no_se_repite_un_campo_filtrable(self):
+        for fuente in fuentes.CATALOGO:
+            campos = [f["campo"] for f in fuente.filtros]
+            self.assertEqual(len(campos), len(set(campos)), fuente.clave)
+
     def test_lo_que_sale_en_la_leyenda_tiene_color(self):
         # `orden` manda sobre las claves de `colores`: un valor listado ahi
         # que no tenga color se dibuja con el color plano de la capa y la

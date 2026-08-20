@@ -207,6 +207,17 @@ label output { float: right; font-family: var(--mono); color: var(--papel); }
 label .pista { opacity: .65; font-style: italic; }
 .campo { margin-bottom: 10px; }
 
+/* Filtro de las capas catastrales. Mas apretado que .campo porque van cuatro
+   seguidos dentro del detalle de una capa, no sueltos en un cuadro. */
+.fcat-campo { margin-bottom: 7px; }
+.fcat-campo > label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: var(--papel-2);
+}
+.fcat-campo select, .fcat-campo input { width: 100%; }
+
 /* --- Grupos de capas ---------------------------------------------------- */
 .grupo-cabecera {
   display: flex;

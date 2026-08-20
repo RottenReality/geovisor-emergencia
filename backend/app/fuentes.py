@@ -109,6 +109,19 @@ class Fuente:
     lat: str = "lat"
     lon: str = "lon"
     enlaces: dict = field(default_factory=dict)   # {campo: prefijo a anteponer}
+    # Campos por los que el navegador puede filtrar la capa.
+    #
+    #   ({"campo": "planta_ubicacion", "etiqueta": "Planta"},)
+    #
+    # El filtro es LOCAL a cada navegador y no toca el servidor: se aplica
+    # sobre los atributos que ya viajan dentro de la tesela. Por eso el campo
+    # tiene que estar en `campos`, y por eso cambiar de planta es instantaneo
+    # en vez de una peticion y una espera.
+    #
+    # Se declara a mano y no se deduce de `campos` porque casi ningun atributo
+    # sirve para filtrar: el numero predial son 650.975 valores distintos, y
+    # ofrecerlo como filtro es ofrecer una lista inmanejable.
+    filtros: tuple[dict, ...] = ()
     # Solo para tipo 'catastro'. Zoom entre el que se piden teselas.
     #
     # zoom_min existe porque el catastro no se puede dibujar a escala de
@@ -116,10 +129,10 @@ class Fuente:
     # que se veria seria una mancha negra. Por debajo de este zoom la capa
     # simplemente no se pide.
     #
-    # En las urbanas esta en 16 y no en 15 por medida, no por gusto: una
-    # tesela z15 del centro son 853 KB y casi dos segundos de PostGIS, y en
-    # pantalla son 578.000 poligonos, que no se leen igual. A 16 la misma
-    # tesela baja a 300 KB y 140 ms.
+    # En las urbanas esta en 15 y no en 14: a 14 son 46.765 poligonos en una
+    # sola tesela y segundo y medio de PostGIS. A 15 son 10.891 y ~250 ms,
+    # porque por debajo de zoom_max la tesela se genera con menos precision de
+    # coordenada, que a esa escala no se ve. Ahi si sale a cuenta.
     #
     # zoom_max NO es hasta donde se ve, sino hasta donde se GENERA: por encima
     # el navegador reescala la ultima tesela. Sin el, mirar una manzana a z20
@@ -741,7 +754,14 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="numero_predial_nacional",
         color="#9b5de5",
         naturaleza="estatica",
-        zoom_min=16,
+        # La razon de ser del filtro en esta capa: con todas las plantas
+        # dibujadas, la de arriba tapa a la de abajo. Aislar una planta es
+        # la unica forma de mirar la que interesa.
+        filtros=({"campo": "planta_ubicacion", "etiqueta": "Planta"},
+                 {"campo": "tipo_planta", "etiqueta": "Tipo de planta"},
+                 {"campo": "tipo_construccion", "etiqueta": "Tipo de construcción"},
+                 {"campo": "anio_construccion", "etiqueta": "Año de construcción"}),
+        zoom_min=15,
         zoom_max=16,
         # Un color por planta. Sin esto la capa es ilegible: las plantas de un
         # mismo edificio se superponen casi por completo y lo unico que se ve
@@ -774,7 +794,8 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="numero_predial_nacional",
         color="#00b4d8",
         naturaleza="estatica",
-        zoom_min=16,
+        filtros=({"campo": "area_terreno", "etiqueta": "Área del terreno (m²)"},),
+        zoom_min=15,
         zoom_max=16,
         nota="El lindero del predio, que es la unidad sobre la que se reclama. "
              "338.312 predios. Copia local del 15/08/2026.",
@@ -790,7 +811,10 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="numero_predial_nacional",
         color="#f77f00",
         naturaleza="estatica",
-        zoom_min=16,
+        filtros=({"campo": "tipo_construccion", "etiqueta": "Tipo de construcción"},
+                 {"campo": "numero_pisos", "etiqueta": "Número de pisos"},
+                 {"campo": "altura", "etiqueta": "Altura (m)"}),
+        zoom_min=15,
         zoom_max=16,
         simbologia={"campo": "tipo_construccion", "modo": "categorias",
                     "colores": CONSTRUCCION_CALI,
@@ -812,6 +836,10 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="etiqueta",
         color="#7209b7",
         naturaleza="estatica",
+        filtros=({"campo": "pisopred", "etiqueta": "Piso"},
+                 {"campo": "u_destinos", "etiqueta": "Destino"},
+                 {"campo": "comuna", "etiqueta": "Comuna"},
+                 {"campo": "tipo_avalu", "etiqueta": "Tipo de avalúo"}),
         zoom_min=13,
         zoom_max=16,
         nota="43.353 unidades. Pese al nombre incluye propiedad horizontal («APTO 402», "
@@ -830,6 +858,9 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="idterreno",
         color="#06a77d",
         naturaleza="estatica",
+        filtros=({"campo": "comuna", "etiqueta": "Comuna"},
+                 {"campo": "sector", "etiqueta": "Sector"},
+                 {"campo": "tipo_avalu", "etiqueta": "Tipo de avalúo"}),
         zoom_min=13,
         zoom_max=16,
         nota="18.196 terrenos. El número predial nacional («npn») solo viene en el 6%; "
@@ -847,6 +878,10 @@ CATALOGO: tuple[Fuente, ...] = (
         titulo="etiqueta",
         color="#d62828",
         naturaleza="estatica",
+        filtros=({"campo": "npisos", "etiqueta": "Número de pisos"},
+                 {"campo": "u_destinos", "etiqueta": "Destino"},
+                 {"campo": "tipo_cons", "etiqueta": "Tipo de construcción"},
+                 {"campo": "comuna", "etiqueta": "Comuna"}),
         zoom_min=13,
         zoom_max=16,
         nota="47.429 construcciones. «npisos» viene en el 98%, al contrario que en la capa "

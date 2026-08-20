@@ -417,6 +417,7 @@ def _ficha(fuente: fuentes.Fuente) -> dict:
         "minutos": fuente.minutos,
         "zoom_min": fuente.zoom_min,
         "zoom_max": fuente.zoom_max,
+        "filtros": [dict(f) for f in fuente.filtros],
         # Lo ya descargado, para que el catalogo pueda decir cuantas hay y de
         # cuando son sin volver a pedirlas.
         "total": guardado[2] if guardado else None,
@@ -683,14 +684,24 @@ WITH b AS (
 ),
 f AS (
   SELECT c.props,
-         ST_AsMVTGeom(ST_Transform(c.geom, 3857), b.env, 4096, 64, true) AS geom
+         ST_AsMVTGeom(ST_Transform(c.geom, 3857), b.env, $5, $6, true) AS geom
   FROM catastro c
   CROSS JOIN b
   WHERE c.fuente = $1
     AND c.geom && ST_Transform(b.env, 4326)
 )
-SELECT ST_AsMVT(f, 'catastro', 4096, 'geom') FROM f WHERE geom IS NOT NULL
+SELECT ST_AsMVT(f, 'catastro', $5, 'geom') FROM f WHERE geom IS NOT NULL
 """
+
+# Precision de coordenada dentro de la tesela, en unidades por lado.
+#
+# 4096 es lo habitual y es lo que se usa donde se inspecciona. Pero en la
+# tesela de mas lejos esa precision no se ve y si se paga: medido sobre la
+# capa de construcciones, una tesela z15 del centro de Cali tarda 997 ms a
+# 4096 y 245 ms a 1024. A ese zoom un pixel son ~4,8 m en el suelo y una
+# unidad de tesela a 1024 son 1,2 m, asi que no hay nada que perder.
+EXTENT_DETALLE = 4096
+EXTENT_LEJOS = 1024
 
 
 @router.get("/{clave}/teselas/{z}/{x}/{y}.pbf")
@@ -709,8 +720,15 @@ async def tesela_vector(clave: str, z: int, x: int, y: int):
             status_code=404,
             detail=f"El catastro no se dibuja por debajo del zoom {fuente.zoom_min}")
 
+    # A partir del zoom en que se generan las teselas de detalle, precision
+    # completa; por debajo, la que se ve. El buffer acompana a la escala: es
+    # el margen que evita que un poligono a caballo entre dos teselas se corte
+    # justo en el borde.
+    detalle = z >= fuente.zoom_max
+    extent = EXTENT_DETALLE if detalle else EXTENT_LEJOS
     try:
-        dato = await db.pool().fetchval(_TESELA_CATASTRO, clave, z, x, y)
+        dato = await db.pool().fetchval(_TESELA_CATASTRO, clave, z, x, y,
+                                        extent, 64 if detalle else 16)
     except asyncpg.exceptions.UndefinedTableError as excepcion:
         # La capa esta en el catalogo pero la copia local no se ha creado. Un
         # 500 por tesela llenaria la consola de errores rojos sin decir que
@@ -833,6 +851,79 @@ async def tabla_catastro(clave: str, pagina: int = 0, limite: int = 100,
             "propiedades": json.loads(f["props"]),
         } for f in filas],
     }
+
+
+# Valores distintos de un campo, con su frecuencia. Se cachean sin caducidad:
+# el catastro es una copia de una foto fija y no cambia hasta que alguien
+# reimporte, mientras que la consulta recorre las 650.975 filas de la capa.
+_valores_catastro: dict[tuple[str, str], dict] = {}
+
+# Tope de valores distintos que se devuelven. Un campo con mas que esto es un
+# identificador -el numero predial- y no sirve para filtrar por lista.
+MAX_VALORES = 300
+
+
+@router.get("/{clave}/valores")
+async def valores_catastro(clave: str, campo: str):
+    """Que valores toma un campo del catastro, para poblar el filtro.
+
+    El filtro se aplica en el navegador sobre los atributos que ya viajan
+    dentro de la tesela, asi que esto no filtra nada: solo dice que opciones
+    ofrecer, y cuantas hay de cada una. Sin los conteos, un desplegable de
+    plantas no distingue la planta 2 -100.839 unidades- de la planta 27, que
+    tiene once.
+    """
+    fuente = _buscar(clave)
+    if fuente.tipo != "catastro":
+        raise HTTPException(status_code=400, detail="Esa fuente no tiene valores que listar")
+    # Solo campos declarados como filtrables. El campo entra en la consulta
+    # como parametro, no interpolado, pero aun asi no hay razon para dejar
+    # preguntar por cualquier cosa.
+    if campo not in {f["campo"] for f in fuente.filtros}:
+        raise HTTPException(status_code=400, detail=f"«{campo}» no es filtrable en esta capa")
+
+    guardado = _valores_catastro.get((clave, campo))
+    if guardado is not None:
+        return guardado
+
+    filas = await db.pool().fetch(
+        """
+        SELECT NULLIF(btrim(props ->> $2), '') AS valor, COUNT(*) AS total
+        FROM catastro
+        WHERE fuente = $1
+        GROUP BY 1
+        ORDER BY COUNT(*) DESC, 1
+        LIMIT $3
+        """,
+        clave, campo, MAX_VALORES + 1,
+    )
+    cortado = len(filas) > MAX_VALORES
+    filas = filas[:MAX_VALORES]
+
+    # Numerico si TODO lo que trae dato lo es. Decide el control: un rango con
+    # dos extremos, o una lista de casillas.
+    def numero(texto):
+        try:
+            return float(texto)
+        except (TypeError, ValueError):
+            return None
+
+    con_dato = [f for f in filas if f["valor"] is not None]
+    numeros = [numero(f["valor"]) for f in con_dato]
+    es_numerico = bool(con_dato) and all(n is not None for n in numeros)
+
+    respuesta = {
+        "campo": campo,
+        "numerico": es_numerico,
+        "truncado": cortado,
+        "sin_dato": sum(f["total"] for f in filas if f["valor"] is None),
+        "minimo": min(numeros) if es_numerico else None,
+        "maximo": max(numeros) if es_numerico else None,
+        "valores": [{"valor": f["valor"], "total": f["total"]} for f in con_dato],
+    }
+    if not cortado:
+        _valores_catastro[(clave, campo)] = respuesta
+    return respuesta
 
 
 class Copia(BaseModel):

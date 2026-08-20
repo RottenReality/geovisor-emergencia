@@ -16,7 +16,8 @@
 import { api, avisar, escapar, descargarArchivo, formatearPeso, $ } from './util.js';
 import * as pila from './pila.js';
 import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster,
-         zoomQueFalta, mapa } from './mapa.js';
+         zoomQueFalta, fijarFiltroCatastro, mapa } from './mapa.js';
+import * as filtroCatastro from './filtro-catastro.js';
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
 import * as externas from './externas.js';
@@ -64,6 +65,7 @@ export async function cargar() {
   sincronizarCapas(
     items.filter((i) => i.esExterna || !i.esRaster || i.estado === 'listo').map(efectivo));
   simbologia.reaplicarFiltros(items);
+  reaplicarFiltrosCatastro();
   simbologia.pintarLeyenda(items.map(efectivo));
   vigilarConversiones();
   // Quien dependa de la lista de capas (el selector de destino al dibujar) se
@@ -81,6 +83,16 @@ export async function cargar() {
 // Se repinta al CRUZAR, no en cada gesto de zoom: reconstruir el panel entero
 // mientras alguien hace zoom con la rueda son decenas de reconstrucciones por
 // segundo, y por debajo del umbral no habria cambiado nada en pantalla.
+/** Vuelve a poner el filtro local del catastro. Hace falta tras cada
+ *  sincronizacion, porque sincronizarCapas() recrea las capas de MapLibre y
+ *  con ellas se va el filtro que tuvieran puesto. */
+function reaplicarFiltrosCatastro() {
+  for (const item of items) {
+    if (item.fuente?.tipo !== 'catastro') continue;
+    fijarFiltroCatastro(item.id, filtroCatastro.expresion(item.id));
+  }
+}
+
 const clavesBajoMinimo = () => items
   .filter((i) => i.visible && zoomQueFalta(i))
   .map((i) => i.id).join(',');
@@ -598,6 +610,9 @@ function pintarFilaExterna(item) {
   // Encendida pero sin dibujar por falta de zoom. Sin decirlo, la fila se ve
   // exactamente igual que una capa que si esta pintada.
   const falta = item.visible ? zoomQueFalta(item) : null;
+  // Si alguien esta viendo solo una parte de la capa tiene que saberlo sin
+  // abrirla. Creer que faltan datos es el error caro en una emergencia.
+  const acotada = filtroCatastro.cuantosFiltros(item.id);
 
   fila.innerHTML = `
       <div class="capa-cabecera">
@@ -615,6 +630,10 @@ function pintarFilaExterna(item) {
         ${falta ? `
           <span class="estado sin-zoom" title="Fuente externa. Se dibuja desde el zoom ${falta}: acércate, o abre las opciones y pulsa «Ir a la capa».">z${falta}+</span>`
           : '<span class="estado tipo">ext</span>'}
+        ${acotada ? `
+          <button class="estado filtro" data-accion="quitar-filtro"
+                  title="Estás viendo solo una parte de esta capa (${acotada} filtro${
+                    acotada === 1 ? '' : 's'}). Pulsa para quitarlo.">filtrada</button>` : ''}
         <span class="conteo">${escapar(conteo)}</span>
         <button class="icono" data-accion="subir" ${pila.enElBorde(clave2, 'subir') ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
@@ -649,6 +668,7 @@ function pintarFilaExterna(item) {
                 ${escapar(f.etiqueta)}
               </span>`).join('')}
           </div>` : ''}
+        <div class="fcat"></div>
         ${selectorDeGrupo(item)}
         <div class="fila" style="margin-top:8px">
           <button data-accion="encuadrar">Ir a la capa</button>
@@ -700,6 +720,18 @@ function pintarFilaExterna(item) {
     }
   });
 
+  // El filtro se pinta aparte porque necesita preguntarle al servidor que
+  // valores toma cada campo, y eso es asincrono. Solo cuando la fila esta
+  // abierta: cada campo cuesta una consulta que recorre la capa entera.
+  const hueco = fila.querySelector('.fcat');
+  if (hueco && abierta && item.fuente?.tipo === 'catastro') {
+    filtroCatastro.pintar(hueco, item, () => {
+      fijarFiltroCatastro(item.id, filtroCatastro.expresion(item.id));
+      // Repintar para que el distintivo "filtrada" cuadre con lo que se ve.
+      pintar();
+    }).catch((error) => avisar(error.message, true));
+  }
+
   return fila;
 }
 
@@ -727,6 +759,12 @@ async function manejarExterna(accion, item, clave) {
 
     case 'encuadrar':
       await irAExterna(item);
+      break;
+
+    case 'quitar-filtro':
+      filtroCatastro.limpiar(item.id);
+      fijarFiltroCatastro(item.id, null);
+      pintar();
       break;
 
     case 'copiar':

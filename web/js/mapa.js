@@ -135,6 +135,20 @@ export function fijarFiltro(capaId, expresion) {
   }
 }
 
+/**
+ * Aplica el filtro local de una capa catastral.
+ *
+ * Aparte de fijarFiltro(), que solo toca las capas propias (`capa-*`) y
+ * combina el filtro con el tipo de geometria. Las catastrales son todas
+ * poligonos y viven en `ext-*`, asi que la expresion va tal cual.
+ */
+export function fijarFiltroCatastro(clave, expresion) {
+  for (const sufijo of ['-relleno', '-borde']) {
+    const id = `ext-${clave}${sufijo}`;
+    if (mapa.getLayer(id)) mapa.setFilter(id, expresion);
+  }
+}
+
 export function inicializarFuentes() {
   mapa.addSource('datos', {
     type: 'vector',
