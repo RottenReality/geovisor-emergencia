@@ -111,6 +111,15 @@ export async function encender(clave) {
   }
   await precargar(fuente);
   await alCambiar();
+
+  // El catastro no se dibuja por debajo de su zoom minimo, y el visor arranca
+  // sobre toda Colombia. Sin este aviso, encender la capa deja el panel
+  // diciendo 650.975 y el mapa vacio, que se lee como que no funciona.
+  const minimo = fuente.tipo === 'catastro' ? (fuente.zoom_min ?? 15) : null;
+  if (minimo != null && mapa.getZoom() < minimo) {
+    avisar(`«${fuente.nombre}» se dibuja desde el zoom ${minimo}. `
+           + 'Acércate, o abre sus opciones en el panel y pulsa «Ir a la capa».');
+  }
 }
 
 export async function apagar(clave) {

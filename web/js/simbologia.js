@@ -18,7 +18,7 @@
  */
 
 import { api, avisar, escapar, numero, $ } from './util.js';
-import { fijarFiltro, refrescarDatos } from './mapa.js';
+import { fijarFiltro, refrescarDatos, zoomQueFalta } from './mapa.js';
 
 // ---------------------------------------------------------------------------
 // Paletas
@@ -148,12 +148,17 @@ export function pintarLeyenda(items) {
   caja.hidden = false;
   $('leyenda-cuerpo').innerHTML = conTema.map((item) => {
     const ocultos = new Set(filtroDe(item.id)?.ocultos || []);
+    // Una leyenda de una capa que no se esta dibujando es peor que ninguna:
+    // dice que colores buscar en un mapa donde no hay nada que buscar.
+    const falta = zoomQueFalta(item);
     return `
-      <div class="leyenda-capa">
+      <div class="leyenda-capa${falta ? ' sin-zoom' : ''}">
         <div class="leyenda-titulo">
           <span class="nombre">${escapar(item.nombre)}</span>
           <span class="campo">${escapar(item.estilo.campo)}</span>
         </div>
+        ${falta ? `
+          <div class="leyenda-aviso">Acércate al zoom ${falta} para verla</div>` : ''}
         ${leyendaDe(item).map((fila) => `
           <div class="leyenda-fila ${fila.valor !== null && ocultos.has(fila.valor) ? 'oculta' : ''}">
             <span class="muestra" style="background:${escapar(fila.color)}"></span>

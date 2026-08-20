@@ -204,6 +204,21 @@ const PARTES_VECTOR = ['-relleno', '-borde', '-punto'];
 const esCatastro = (item) => item.fuente?.tipo === 'catastro';
 
 /**
+ * Zoom que le falta a una capa para dibujarse, o null si ya se dibuja.
+ *
+ * El catastro no se pide por debajo de su zoom_min, porque a escala de ciudad
+ * son cientos de miles de poligonos y lo que se veria seria una mancha. El
+ * problema es que encender una capa y no ver NADA se lee como que esta rota:
+ * el panel dice 650.975, la leyenda sale, y el mapa esta vacio. Con esto, la
+ * leyenda y el panel pueden decir que falta acercarse en vez de callarse.
+ */
+export function zoomQueFalta(item) {
+  if (!esCatastro(item)) return null;
+  const minimo = item.fuente.zoom_min ?? 15;
+  return mapa.getZoom() < minimo ? minimo : null;
+}
+
+/**
  * Opacidad del relleno de una capa vectorial externa.
  *
  * El catastro va mas transparente que el resto A PROPOSITO. En una capa
@@ -520,8 +535,20 @@ export function irA(lugar) {
   mapa.flyTo({ center: [lugar.lon, lugar.lat], zoom: lugar.zoom, speed: 1.6 });
 }
 
-export function encuadrar(extension) {
+export function encuadrar(extension, zoomMinimo = null) {
   if (!extension || extension.length !== 4) return;
+  // Encuadrar el catastro de Cali entero deja el mapa en zoom 12, por debajo
+  // del zoom al que la capa se dibuja: el boton cumpliria al pie de la letra
+  // y aun asi te dejaria mirando un mapa vacio. Cuando la capa tiene minimo,
+  // se va al centro de su extension a ese zoom.
+  if (zoomMinimo != null) {
+    mapa.flyTo({
+      center: [(extension[0] + extension[2]) / 2, (extension[1] + extension[3]) / 2],
+      zoom: zoomMinimo,
+      speed: 1.6,
+    });
+    return;
+  }
   mapa.fitBounds([[extension[0], extension[1]], [extension[2], extension[3]]],
                  { padding: 60, maxZoom: 17 });
 }

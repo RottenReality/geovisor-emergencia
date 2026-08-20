@@ -322,6 +322,17 @@ button.chevron.abierto { transform: rotate(180deg); }
 }
 .estado.espera { color: var(--foco); }
 .estado.malo { color: #ff8b7f; }
+/* Capa encendida que todavia no se dibuja porque falta zoom. Mismo lenguaje
+   visual que el aviso de filtro: ambos dicen "estas viendo menos de lo que
+   crees", que es el error caro en una emergencia. */
+.estado.sin-zoom {
+  color: var(--foco);
+  border: 1px solid #4a4126;
+  border-radius: 3px;
+  padding: 1px 5px;
+  cursor: help;
+  white-space: nowrap;
+}
 .estado.aviso {
   color: var(--foco);
   border: 1px solid #4a4126;
@@ -732,6 +743,15 @@ table.atributos code {
 }
 .leyenda-capa { margin-bottom: 9px; }
 .leyenda-capa:last-child { margin-bottom: 0; }
+/* Una leyenda de una capa que no se esta dibujando dice que colores buscar en
+   un mapa donde no hay nada que buscar. Se atenua y se dice por que. */
+.leyenda-capa.sin-zoom .leyenda-fila { opacity: .4; }
+.leyenda-aviso {
+  font-size: 10.5px;
+  color: var(--foco);
+  margin: 2px 0 5px;
+  line-height: 1.35;
+}
 .leyenda-titulo {
   display: flex;
   align-items: baseline;

@@ -15,7 +15,8 @@
 
 import { api, avisar, escapar, descargarArchivo, formatearPeso, $ } from './util.js';
 import * as pila from './pila.js';
-import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster } from './mapa.js';
+import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster,
+         zoomQueFalta, mapa } from './mapa.js';
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
 import * as externas from './externas.js';
@@ -69,6 +70,27 @@ export async function cargar() {
   // entera por aqui, sin que este modulo tenga que conocerlo.
   document.dispatchEvent(new CustomEvent('capas:cambiadas'));
 }
+
+// ---------------------------------------------------------------------------
+// Capas que aparecen y desaparecen con el zoom
+// ---------------------------------------------------------------------------
+// Solo el catastro, por ahora. Al cruzar su zoom minimo la capa empieza o deja
+// de dibujarse, y el panel y la leyenda tienen que decirlo: si no, cruzar el
+// umbral hacia abajo vacia el mapa sin que nada cambie en la interfaz.
+//
+// Se repinta al CRUZAR, no en cada gesto de zoom: reconstruir el panel entero
+// mientras alguien hace zoom con la rueda son decenas de reconstrucciones por
+// segundo, y por debajo del umbral no habria cambiado nada en pantalla.
+let bajoMinimo = '';
+
+mapa.on('zoomend', () => {
+  const ahora = items.filter((i) => i.visible && zoomQueFalta(i))
+    .map((i) => i.id).join(',');
+  if (ahora === bajoMinimo) return;
+  bajoMinimo = ahora;
+  pintar();
+  simbologia.pintarLeyenda(items.map(efectivo));
+});
 
 /** Devuelve el mapa a la visibilidad real de las capas.
  *  Lo usa la comparacion al cerrarse, tras haber ocultado el resto. */
@@ -563,6 +585,9 @@ function pintarFilaExterna(item) {
   const entradas = simbologia.leyendaDe(item);
   const conteo = item.esImagen ? 'imagen'
     : item.total != null ? item.total.toLocaleString('es-CO') : '…';
+  // Encendida pero sin dibujar por falta de zoom. Sin decirlo, la fila se ve
+  // exactamente igual que una capa que si esta pintada.
+  const falta = item.visible ? zoomQueFalta(item) : null;
 
   fila.innerHTML = `
       <div class="capa-cabecera">
@@ -578,6 +603,9 @@ function pintarFilaExterna(item) {
           ${escapar(item.nombre)}
         </button>
         <span class="estado tipo">ext</span>
+        ${falta ? `
+          <span class="estado sin-zoom" title="Esta capa se dibuja desde el zoom ${falta}.
+Acércate, o abre las opciones y pulsa «Ir a la capa».">z${falta}+</span>` : ''}
         <span class="conteo">${escapar(conteo)}</span>
         <button class="icono" data-accion="subir" ${pila.enElBorde(clave2, 'subir') ? 'disabled' : ''}
                 title="Traer al frente" aria-label="Traer al frente">&uarr;</button>
@@ -590,6 +618,11 @@ function pintarFilaExterna(item) {
       <div class="capa-detalle">
         <p class="nota"><strong>${escapar(item.fuente.organizacion)}</strong>${
           item.fuente.nota ? ` · ${escapar(item.fuente.nota)}` : ''}</p>
+        ${falta ? `
+          <p class="nota aviso-tema">
+            Encendida, pero no se dibuja a este zoom: son cientos de miles de polígonos y a
+            escala de ciudad serían una mancha. Pulsa «Ir a la capa» para saltar al zoom ${falta}.
+          </p>` : ''}
         ${item.sinUbicacion ? `
           <p class="nota aviso-tema">
             ${item.sinUbicacion.toLocaleString('es-CO')} registros de esta fuente no traen
@@ -709,7 +742,10 @@ async function manejarExterna(accion, item, clave) {
  *  que se calcula del propio GeoJSON: el navegador acaba de descargarlo para
  *  pintarlo, de modo que sale de su cache y no cuesta una peticion nueva. */
 async function irAExterna(item) {
-  if (item.bounds) { encuadrar(item.bounds); return; }
+  // El catastro trae su extension del catalogo, pero encuadrarla entera deja
+  // el mapa por debajo del zoom al que la capa se dibuja.
+  const minimo = item.fuente?.tipo === 'catastro' ? (item.fuente.zoom_min ?? 15) : null;
+  if (item.bounds) { encuadrar(item.bounds, minimo); return; }
   try {
     const datos = await api(`/api/externas/${item.id}.geojson`);
     let x1 = 180, y1 = 90, x2 = -180, y2 = -90;
