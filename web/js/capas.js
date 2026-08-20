@@ -81,13 +81,19 @@ export async function cargar() {
 // Se repinta al CRUZAR, no en cada gesto de zoom: reconstruir el panel entero
 // mientras alguien hace zoom con la rueda son decenas de reconstrucciones por
 // segundo, y por debajo del umbral no habria cambiado nada en pantalla.
+const clavesBajoMinimo = () => items
+  .filter((i) => i.visible && zoomQueFalta(i))
+  .map((i) => i.id).join(',');
+
+// Lo ultimo que se dibujo. Lo fija pintar(), no solo esta escucha: si solo lo
+// llevara la escucha, arrancar ya por debajo del minimo -que es el caso
+// normal, el visor abre sobre Colombia entera- no quedaria registrado, y el
+// primer cruce hacia arriba se comparia contra el valor inicial, saldria
+// igual, y los avisos se quedarian pegados con la capa ya visible.
 let bajoMinimo = '';
 
 mapa.on('zoomend', () => {
-  const ahora = items.filter((i) => i.visible && zoomQueFalta(i))
-    .map((i) => i.id).join(',');
-  if (ahora === bajoMinimo) return;
-  bajoMinimo = ahora;
+  if (clavesBajoMinimo() === bajoMinimo) return;
   pintar();
   simbologia.pintarLeyenda(items.map(efectivo));
 });
@@ -136,6 +142,10 @@ const ESTADOS = {
 function pintar() {
   const lista = $('lista-capas');
   lista.innerHTML = '';
+  // Se anota aqui, y no en la escucha del zoom, porque el panel tambien se
+  // repinta al encender o apagar una capa: si no, encender una estando lejos
+  // dejaria la anotacion sin actualizar.
+  bajoMinimo = clavesBajoMinimo();
 
   if (!items.length && !pila.grupos().length) {
     lista.innerHTML = '<p class="vacio">Aún no hay capas. Crea una o carga un archivo.</p>';
