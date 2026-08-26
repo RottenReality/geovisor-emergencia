@@ -153,8 +153,6 @@ function capaDelModelo(clave, estado) {
     opacity: item.opacidad ?? 1,
     visible: item.visible !== false,
     pickable: true,
-    // Sin esto la malla se dibuja sombreada por deck y las texturas del vuelo
-    // salen apagadas. El material ya viene marcado como 'unlit' en el glTF.
     onTilesetLoad: (conjunto) => {
       estado.conjunto = conjunto;
       // Estas dos NO se pueden pasar como propiedades de la capa: deck.gl no
