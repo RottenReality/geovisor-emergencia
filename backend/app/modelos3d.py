@@ -105,22 +105,21 @@ class Modelo:
     detalle: float = 3.0
     # Presupuesto de cache de la malla, en MB.
     #
-    # No es cuanta memoria se gasta: es a partir de cuanta la libreria empieza
-    # a soltar cosas. Lo que suelta primero son las TEXTURAS, y una tesela sin
-    # textura se dibuja de un color plano. Eso es lo que el equipo veia como
-    # manchas lisas de color salmon sobre la ladera y describio como que «no
-    # carga muy bien»: no le faltaba descarga, le sobraba recorte.
+    # No es cuanta memoria se gasta sino a partir de cuanta la libreria
+    # empieza a soltar teselas. La de serie son 32, y con eso se pasaba de
+    # largo enseguida: medido a zoom 19, la malla en uso llega a 193 MB, o
+    # sea que la libreria estaba rebajando la calidad a proposito para caber
+    # justo cuando mas detalle hace falta.
     #
-    # Probado en la misma vista -zoom 18, camara inclinada- dejando correr un
-    # minuto: con 128 y con 256 salen las manchas y no se van ni esperando
-    # dos minutos y medio, que es lo que descarta que sea lentitud. Con 512
-    # no salen. La malla que de verdad se usa en esa vista son 63 MB, asi que
-    # subir el techo no sube el gasto: solo evita que la libreria empiece a
-    # tirar texturas antes de tiempo.
+    # 256 deja margen sobre ese pico sin reservar de mas: lo que de verdad se
+    # usa en una vista normal son unos 63 MB.
     #
-    # La libreria trae 32 de serie, que para un vuelo de 628 MB no da ni para
-    # la primera pantalla.
-    memoria_mb: int = 512
+    # OJO, para el que venga detras: esto NO arregla las manchas lisas de
+    # color salmon que a veces salen sobre la ladera. Se probo -128, 256, 384
+    # y 512- y con 512 seguian apareciendo en la VPS. Tampoco es el servidor:
+    # las teselas llegan identicas byte a byte, comprobado con md5. Queda sin
+    # explicar.
+    memoria_mb: int = 256
 
 
 MODELOS: tuple[Modelo, ...] = (
@@ -135,7 +134,7 @@ MODELOS: tuple[Modelo, ...] = (
         resolucion_cm=2.0,
         zoom_llegada=18.0,
         detalle=3.0,
-        memoria_mb=512,
+        memoria_mb=256,
     ),
 )
 
