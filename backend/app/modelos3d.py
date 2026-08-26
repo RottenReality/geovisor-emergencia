@@ -87,14 +87,23 @@ class Modelo:
     # veia una mancha parda; con 3, veintisiete, y se distinguen los senderos
     # y los arboles. Medido a zoom 17: 3,1 MB contra 6,8 MB de descarga.
     #
-    # Se para en 3 y no en 6 porque de ahi para arriba ya casi no cambia lo
-    # que se ve de lejos y en cambio dispara el coste de cerca: a zoom 19,
-    # 16,5 MB contra 30,9.
+    # Vuelto a medir con el relieve ya puesto, mirando desde zoom 16 con la
+    # camara inclinada, que es la vista de la que se quejo el equipo:
+    #
+    #     detalle 3 -> 18 teselas,  8 MB de video,  9,1 MB de descarga
+    #     detalle 5 -> 43 teselas, 22 MB de video, 12,7 MB
+    #     detalle 8 -> 66 teselas, 45 MB de video, 16,9 MB
+    #
+    # Se queda en 5. Con 3, el vuelo se veia de lejos como una mancha parda
+    # sin explanada ni senderos. Con 8 sale PEOR: se piden tantas teselas que
+    # no da tiempo a texturarlas y el monumento aparece como un bulto liso.
+    # Cinco es donde se distingue lo que hay sin pedir mas de lo que se puede
+    # dibujar.
     #
     # Y NO se toca `maximumScreenSpaceError`, que seria el mando canonico:
     # deck.gl no lo reenvia a su recorrido del arbol. Comprobado barriendo de
     # 16 a 1 sin que cambiara una sola tesela.
-    detalle: float = 3.0
+    detalle: float = 5.0
     # Altura, en metros, que el modelo digital del terreno da en el centro
     # del modelo.
     #
@@ -128,7 +137,7 @@ MODELOS: tuple[Modelo, ...] = (
         caja=(-76.566948, 3.433575, -76.562047, 3.437902),
         resolucion_cm=2.0,
         zoom_llegada=18.0,
-        detalle=3.0,
+        detalle=5.0,
         altura_dem=1458.2,
         memoria_mb=128,
     ),

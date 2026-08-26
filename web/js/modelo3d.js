@@ -83,6 +83,22 @@ const IMAGEN_TERRENO =
 
 // El DEM de Mapzen no pasa de aqui. Por encima, deck reescala el ultimo.
 const DEM_ZOOM_MAX = 15;
+
+/**
+ * Alturas entre las que se mueve el terreno, en metros y ya apoyado.
+ *
+ * Sin esto, la libreria no sabe a que altura esta el suelo y para elegir que
+ * teselas pedir se pone en lo peor: como el formato Terrarium puede codificar
+ * desde -32.768 m, calculaba una huella de miles de kilometros y traia el
+ * terreno en ZOOM 5 -unos 5 km por pixel- en vez del 15. Por eso lo de
+ * alrededor se veia oscuro y emborronado cuanto mas se acercaba uno: no era
+ * sombreado, era un mapa de altura mil veces mas basto de lo que tocaba.
+ *
+ * Los numeros son del sitio: el fondo del valle de Cali queda unos 500 m por
+ * debajo de la explanada del monumento, y los cerros de alrededor unos 600
+ * por encima.
+ */
+const RANGO_ALTURAS = [-600, 600];
 /**
  * Cuanto se hunde el relieve por debajo de su altura medida, en metros.
  *
@@ -388,6 +404,7 @@ function capasDeRelieve() {
     elevationData: DEM,
     texture: IMAGEN_TERRENO,
     maxZoom: DEM_ZOOM_MAX,
+    zRange: RANGO_ALTURAS,
     // Formato Terrarium: la altura viene repartida en los tres canales. El
     // desplazamiento estandar es -32768; se le resta ademas la altura del
     // terreno bajo el modelo para que los dos queden al mismo nivel.
@@ -439,7 +456,20 @@ export async function encender(item) {
     // profundidad dependan de como MapLibre decida componer: con una malla
     // opaca de por medio eso es una fuente de fallos raros. Aqui el modelo
     // tapa lo que hay debajo, que es justo lo que se espera al mirarlo.
-    overlay = new deck.MapboxOverlay({ interleaved: false, layers: [] });
+    overlay = new deck.MapboxOverlay({
+      interleaved: false, layers: [],
+      // El plano lejano de deck.gl se pega al suelo: de serie llega solo un
+      // 1% mas alla de la altura de la camara. Todo lo que quede POR DEBAJO
+      // del nivel cero se recorta, y el relieve queda por debajo casi
+      // entero. Mirando de lado no se notaba -ahi la camara ve muy lejos-,
+      // pero en vista cenital desaparecia el terreno y quedaba el modelo
+      // flotando sobre el fondo negro. Ampliandolo un 30% cabe la ladera.
+      //
+      // Ni un poco mas: con 6 el terreno vuelve, pero la profundidad pierde
+      // tanta precision que la malla del vuelo y el terreno se pelean pixel
+      // a pixel y sale un mosaico. Probado.
+      views: new deck.MapView({ farZMultiplier: 1.3 }),
+    });
     mapa.addControl(overlay);
   }
   permitirVista3D();
