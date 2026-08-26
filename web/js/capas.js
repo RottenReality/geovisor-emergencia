@@ -18,6 +18,7 @@ import * as pila from './pila.js';
 import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster,
          zoomQueFalta, fijarFiltroCatastro, inclinar, mapa } from './mapa.js';
 import * as filtroCatastro from './filtro-catastro.js';
+import * as modelo3d from './modelo3d.js';
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
 import * as externas from './externas.js';
@@ -676,6 +677,17 @@ function pintarFilaExterna(item) {
         <input type="range" min="0" max="100" value="${Math.round((item.opacidad ?? 1) * 100)}"
                data-accion="opacidad">
         ${bloqueTamano(item)}
+        ${item.fuente.tipo === 'modelo3d' ? `
+          <label class="casilla" style="margin-top:10px">
+            <input type="checkbox" data-accion="relieve"
+                   ${modelo3d.hayRelieve() ? 'checked' : ''}>
+            Relieve del terreno alrededor
+          </label>
+          <p class="nota" style="margin-top:0">
+            El vuelo se corta en seco y el cerro queda como una isla recortada. Esto
+            continúa la ladera más allá del borde con datos públicos de elevación.
+            Se apaga solo cuando quitas el modelo, y cuesta descarga.
+          </p>` : ''}
         ${entradas.length ? `
           <div class="leyenda-mini">
             ${entradas.map((f) => `
@@ -732,6 +744,10 @@ function pintarFilaExterna(item) {
       control.onchange = (e) => externas
         .fijar(item.id, { radio: Number(e.target.value) / 100 })
         .catch((error) => avisar(error.message, true));
+    } else if (accion === 'relieve') {
+      // Es preferencia de quien mira y no estado de la capa: no se publica al
+      // equipo, se guarda en este navegador como el filtro del catastro.
+      control.onchange = (e) => modelo3d.fijarRelieve(e.target.checked);
     } else {
       control.onclick = () => manejarExterna(accion, item, clave);
     }

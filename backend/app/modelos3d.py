@@ -95,6 +95,19 @@ class Modelo:
     # deck.gl no lo reenvia a su recorrido del arbol. Comprobado barriendo de
     # 16 a 1 sin que cambiara una sola tesela.
     detalle: float = 3.0
+    # Altura, en metros, que el modelo digital del terreno da en el centro
+    # del modelo.
+    #
+    # Hace falta para poder dibujar el relieve de alrededor a la altura que le
+    # toca. El modelo del dron viene en altura ELIPSOIDAL y el DEM publico en
+    # altura sobre el nivel del mar, y entre las dos hay el ondulacion del
+    # geoide: en Cali, unos 25 m. Alinear a ojo dejaria el cerro hundido o
+    # flotando esa cantidad.
+    #
+    # Se mide, no se calcula: se descarga la tesela del DEM que cubre el
+    # centro y se lee el pixel. Para el Cristo Rey da 1.458,2 m contra los
+    # 1.483 elipsoidales de la explanada.
+    altura_dem: float = 0.0
     # Techo de memoria de video, en MB.
     #
     # La libreria trae 32 y por encima de eso NO deja de cargar: rebaja la
@@ -116,6 +129,7 @@ MODELOS: tuple[Modelo, ...] = (
         resolucion_cm=2.0,
         zoom_llegada=18.0,
         detalle=3.0,
+        altura_dem=1458.2,
         memoria_mb=128,
     ),
 )

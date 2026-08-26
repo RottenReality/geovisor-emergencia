@@ -60,6 +60,63 @@ let basePrevia = null;
 // trozo de terreno mejor levantado que el resto.
 const BASE_PARA_3D = 'satelite';
 
+/* Relieve del terreno alrededor del modelo
+ * ----------------------------------------
+ * El vuelo cubre 545 x 478 m y se corta en seco: fuera de ahi el mapa es
+ * plano, asi que el cerro parece una isla recortada flotando. Con el relieve
+ * encendido, la ladera continua mas alla del borde del vuelo.
+ *
+ * Lo dibuja deck.gl y NO MapLibre, aunque MapLibre sabe hacer terreno. La
+ * razon es que la superposicion de deck mantiene su propia camara y no sigue
+ * al terreno de MapLibre -comprobado con setCenterElevation-, asi que un
+ * terreno de MapLibre quedaria desalineado del modelo. Estando los dos en
+ * deck comparten camara y buffer de profundidad, y encajan por construccion.
+ *
+ * Va apagado por defecto: son teselas de altura y de imagen que no todo el
+ * mundo necesita, y en campo el ancho de banda es el recurso escaso.
+ */
+// Modelo digital del terreno de Mapzen/AWS. Publico, sin clave y sin cuota.
+const DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+// Y encima, la misma ortoimagen que ya usa el mapa base «Satelite».
+const IMAGEN_TERRENO =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+
+// El DEM de Mapzen no pasa de aqui. Por encima, deck reescala el ultimo.
+const DEM_ZOOM_MAX = 15;
+// Cuanto terreno se trae alrededor del vuelo, en grados (~2,8 km). Suficiente
+// para que el borde no se vea a los zooms a los que se mira un modelo, y no
+// tanto como para descargar media cordillera.
+const MARGEN_RELIEVE = 0.025;
+
+/**
+ * Cuanto se hunde el relieve por debajo de su altura medida, en metros.
+ *
+ * El DEM publico tiene una celda de unos 30 m y el vuelo, 2 cm: son la misma
+ * ladera contada con detalles muy distintos, y donde el DEM suaviza una arista
+ * queda por encima de la malla y la corta. Medido sobre 22 puntos del vuelo:
+ * las dos superficies concuerdan con una mediana de -1,7 m -o sea que la
+ * correccion del geoide es correcta- pero el DEM asoma hasta 9,6 m en las
+ * vaguadas del flanco oeste.
+ *
+ * Hundiendolo doce metros, la malla del vuelo gana siempre. El precio es un
+ * escaloncito de esa altura en el borde del vuelo, que sobre un cerro de 172 m
+ * de desnivel apenas se nota y ademas deja claro hasta donde llego el dron.
+ * Que el terreno bastо corte el monumento es mucho peor.
+ */
+const HOLGURA_RELIEVE = 12;
+
+const LLAVE_RELIEVE = 'geovisor.relieve3d';
+let conRelieve = false;
+try { conRelieve = localStorage.getItem(LLAVE_RELIEVE) === 'si'; } catch { conRelieve = false; }
+
+export const hayRelieve = () => conRelieve;
+
+export function fijarRelieve(encendido) {
+  conRelieve = Boolean(encendido);
+  try { localStorage.setItem(LLAVE_RELIEVE, conRelieve ? 'si' : 'no'); } catch { /* modo privado */ }
+  repintar();
+}
+
 const COLOR_BORRADOR = [255, 209, 102];
 const COLOR_VERTICE = [255, 255, 255];
 
@@ -100,6 +157,9 @@ const OPCIONES_CARGA = {
     libraryPath: `${VENDOR}/draco/`,
     decoderType: 'wasm',
   },
+  // El que convierte las teselas de altura en malla. Mismo motivo: de serie
+  // se lo pide a unpkg.com.
+  terrain: { workerUrl: `${VENDOR}/terrain-worker.js` },
 };
 
 // ---------------------------------------------------------------------------
@@ -293,9 +353,58 @@ function capasDeMarcas() {
   return capas;
 }
 
+/**
+ * Altura que el DEM da bajo el modelo encendido, para alinearlos.
+ *
+ * Sin esto el terreno saldria a su altura sobre el nivel del mar y el modelo
+ * a la suya sobre el elipsoide, con unos 25 m de diferencia en Cali: el cerro
+ * atravesaria el vuelo por abajo o lo dejaria flotando.
+ */
+function alturaDemActiva() {
+  for (const estado of encendidos.values()) {
+    const dem = estado.item.fuente?.modelo?.altura_dem;
+    if (Number.isFinite(dem) && dem !== 0) return dem;
+  }
+  return null;
+}
+
+function capasDeRelieve() {
+  if (!conRelieve || !encendidos.size) return [];
+  const dem = alturaDemActiva();
+  if (dem === null) return [];      // modelo sin calibrar: mejor no dibujarlo
+
+  // Alrededor del primer modelo encendido.
+  const caja = [...encendidos.values()].map((e) => e.item.bounds).find(Boolean);
+  if (!caja) return [];
+  const extension = [caja[0] - MARGEN_RELIEVE, caja[1] - MARGEN_RELIEVE,
+                     caja[2] + MARGEN_RELIEVE, caja[3] + MARGEN_RELIEVE];
+
+  return [new deck.TerrainLayer({
+    id: 'relieve',
+    elevationData: DEM,
+    texture: IMAGEN_TERRENO,
+    extent: extension,
+    maxZoom: DEM_ZOOM_MAX,
+    // Formato Terrarium: la altura viene repartida en los tres canales. El
+    // desplazamiento estandar es -32768; se le resta ademas la altura del
+    // terreno bajo el modelo para que los dos queden al mismo nivel.
+    elevationDecoder: {
+      rScaler: 256, gScaler: 1, bScaler: 1 / 256,
+      offset: -32768 - dem - HOLGURA_RELIEVE,
+    },
+    loadOptions: OPCIONES_CARGA,
+    // Sin sombreado propio: la ortoimagen ya trae las sombras del dia que se
+    // tomo, y anadirle otras encima ensucia el relieve en vez de aclararlo.
+    material: false,
+  })];
+}
+
 function repintar() {
   if (!overlay) return;
   const capas = [];
+  // El relieve va PRIMERO para que quede debajo. Los dos escriben
+  // profundidad, asi que donde el vuelo esta por encima, gana el vuelo.
+  capas.push(...capasDeRelieve());
   for (const [clave, estado] of encendidos) capas.push(capaDelModelo(clave, estado));
   capas.push(...capasDeMarcas());
   overlay.setProps({ layers: capas });

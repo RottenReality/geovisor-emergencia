@@ -148,6 +148,31 @@ class Catalogo(unittest.TestCase):
             self.assertTrue(oeste <= modelo.centro[0] <= este, modelo.clave)
             self.assertTrue(sur <= modelo.centro[1] <= norte, modelo.clave)
 
+    def test_la_altura_del_dem_permite_dibujar_el_relieve(self):
+        # Un cero aqui significa «sin calibrar» y el visor no dibuja el
+        # relieve, que es lo correcto: mejor sin terreno que con el terreno
+        # atravesando el monumento.
+        for modelo in modelos3d.MODELOS:
+            if not modelo.altura_dem:
+                continue
+            self.assertTrue(0 < modelo.altura_dem < 6000, modelo.clave)
+
+    def test_el_dem_queda_por_debajo_de_la_altura_elipsoidal(self):
+        # El vuelo viene en altura elipsoidal y el DEM publico sobre el nivel
+        # del mar. En Colombia el geoide esta por debajo del elipsoide, asi
+        # que el DEM tiene que dar SIEMPRE un numero menor. Si algun dia sale
+        # al reves, alguien confundio las dos alturas y el relieve saldria
+        # decenas de metros fuera de sitio.
+        for modelo in modelos3d.MODELOS:
+            if not modelo.altura_dem:
+                continue
+            self.assertLess(modelo.altura_dem, modelo.altura_base, modelo.clave)
+            # Y no por cualquier cosa: la ondulacion del geoide en Colombia
+            # anda entre los 10 y los 50 m.
+            diferencia = modelo.altura_base - modelo.altura_dem
+            self.assertTrue(5 < diferencia < 60,
+                            f"{modelo.clave}: {diferencia:.1f} m entre el vuelo y el DEM")
+
     def test_la_altura_base_es_plausible(self):
         # Cero significaria «sin calibrar», y el modelo quedaria a 1.400 m
         # sobre la camara. Un valor absurdo lo enterraria bajo el mapa.
