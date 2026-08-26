@@ -809,7 +809,10 @@ async function irAExterna(item) {
   // El catastro y los modelos traen su extension del catalogo, pero encuadrar
   // la entera deja el mapa por debajo del zoom al que la capa se dibuja.
   const conMinimo = ['catastro', 'modelo3d'].includes(item.fuente?.tipo);
-  const minimo = conMinimo ? (item.fuente.zoom_min ?? 15) : null;
+  // Un modelo se pide desde zoom_min, pero a ese zoom todavia se ve su nivel
+  // mas basto. Se aterriza mas cerca, donde ya hay textura que mirar.
+  const minimo = !conMinimo ? null
+    : item.fuente.modelo?.zoom_llegada ?? item.fuente.zoom_min ?? 15;
   if (item.bounds) {
     encuadrar(item.bounds, minimo);
     // Un modelo mirado desde arriba parece una ortofoto mala. Se llega ya

@@ -72,6 +72,13 @@ class Modelo:
     caja: tuple[float, float, float, float]   # oeste, sur, este, norte
     # Metros por pixel del vuelo, para poder decirlo en el panel.
     resolucion_cm: float = 0.0
+    # Zoom al que aterriza «Ir a la capa».
+    #
+    # No es el mismo que zoom_min. Por debajo de zoom_min no se pide nada,
+    # pero llegar justo ahi deja el modelo en su nivel mas basto -una mancha
+    # parda sin textura- y la primera impresion es que esta roto. A 18 el
+    # vuelo llena la pantalla y ya se distinguen los techos.
+    zoom_llegada: float = 18.0
 
 
 MODELOS: tuple[Modelo, ...] = (
@@ -84,6 +91,7 @@ MODELOS: tuple[Modelo, ...] = (
         centro=(-76.564498, 3.435738),
         caja=(-76.566948, 3.433575, -76.562047, 3.437902),
         resolucion_cm=2.0,
+        zoom_llegada=18.0,
     ),
 )
 

@@ -445,6 +445,7 @@ def _datos_del_modelo(fuente: fuentes.Fuente) -> dict:
             "altura_base": modelo.altura_base,
             "centro": list(modelo.centro),
             "resolucion_cm": modelo.resolucion_cm,
+            "zoom_llegada": modelo.zoom_llegada,
         },
         "bounds": list(modelo.caja),
     }
