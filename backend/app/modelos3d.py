@@ -87,43 +87,38 @@ class Modelo:
     # veia una mancha parda; con 3, veintisiete, y se distinguen los senderos
     # y los arboles. Medido a zoom 17: 3,1 MB contra 6,8 MB de descarga.
     #
-    # Vuelto a medir con el relieve ya puesto, mirando desde zoom 16 con la
-    # camara inclinada, que es la vista de la que se quejo el equipo:
+    # Estuvo en 5 un dia y se volvio a 3 porque el equipo dijo que asi «no
+    # carga muy bien». Lo medido, desde zoom 16 e inclinado:
     #
-    #     detalle 3 -> 18 teselas,  8 MB de video,  9,1 MB de descarga
-    #     detalle 5 -> 43 teselas, 22 MB de video, 12,7 MB
-    #     detalle 8 -> 66 teselas, 45 MB de video, 16,9 MB
+    #     detalle 3 ->  9,1 MB de descarga,   8 MB de video
+    #     detalle 5 -> 12,7 MB,              22 MB
+    #     detalle 8 -> 16,9 MB,              45 MB   (y encima se ve peor:
+    #                  no da tiempo a texturar y sale un bulto liso)
     #
-    # Se queda en 5. Con 3, el vuelo se veia de lejos como una mancha parda
-    # sin explanada ni senderos. Con 8 sale PEOR: se piden tantas teselas que
-    # no da tiempo a texturarlas y el monumento aparece como un bulto liso.
-    # Cinco es donde se distingue lo que hay sin pedir mas de lo que se puede
-    # dibujar.
+    # De lejos se gana nitidez subiendolo, pero de cerca el coste se dispara
+    # -a zoom 19, 53,8 MB contra 36,7- y eso es lo que se noto. Si alguna vez
+    # se quiere probar otra vez, es este numero y nada mas.
     #
     # Y NO se toca `maximumScreenSpaceError`, que seria el mando canonico:
     # deck.gl no lo reenvia a su recorrido del arbol. Comprobado barriendo de
     # 16 a 1 sin que cambiara una sola tesela.
-    detalle: float = 5.0
-    # Altura, en metros, que el modelo digital del terreno da en el centro
-    # del modelo.
+    detalle: float = 3.0
+    # Presupuesto de cache de la malla, en MB.
     #
-    # Hace falta para poder dibujar el relieve de alrededor a la altura que le
-    # toca. El modelo del dron viene en altura ELIPSOIDAL y el DEM publico en
-    # altura sobre el nivel del mar, y entre las dos hay el ondulacion del
-    # geoide: en Cali, unos 25 m. Alinear a ojo dejaria el cerro hundido o
-    # flotando esa cantidad.
+    # No es cuanta memoria se gasta: es a partir de cuanta la libreria empieza
+    # a soltar cosas. Lo que suelta primero son las TEXTURAS, y una tesela sin
+    # textura se dibuja de un color plano. Eso es lo que el equipo veia como
+    # manchas lisas de color salmon sobre la ladera y describio como que «no
+    # carga muy bien»: no le faltaba descarga, le sobraba recorte.
     #
-    # Se mide, no se calcula: se descarga la tesela del DEM que cubre el
-    # centro y se lee el pixel. Para el Cristo Rey da 1.458,2 m contra los
-    # 1.483 elipsoidales de la explanada.
-    altura_dem: float = 0.0
-    # Techo de memoria de video, en MB.
+    # Probado en la misma vista -zoom 18, camara inclinada- dejando correr un
+    # minuto: con 128 y con 256 salen las manchas; con 384 y con 512, no. La
+    # malla que de verdad se usa en esa vista son 63 MB, asi que subir el
+    # techo no sube el gasto: solo evita que empiece a tirar antes de tiempo.
     #
-    # La libreria trae 32 y por encima de eso NO deja de cargar: rebaja la
-    # calidad a proposito para caber. De cerca se pasaba de largo -78 MB
-    # medidos a zoom 19- asi que estaba degradando justo cuando mas detalle
-    # hace falta, y eso es parte de por que «hay que acercarse mucho».
-    memoria_mb: int = 128
+    # La libreria trae 32 de serie, que para un vuelo de 628 MB no da ni para
+    # la primera pantalla.
+    memoria_mb: int = 384
 
 
 MODELOS: tuple[Modelo, ...] = (
@@ -137,9 +132,8 @@ MODELOS: tuple[Modelo, ...] = (
         caja=(-76.566948, 3.433575, -76.562047, 3.437902),
         resolucion_cm=2.0,
         zoom_llegada=18.0,
-        detalle=5.0,
-        altura_dem=1458.2,
-        memoria_mb=128,
+        detalle=3.0,
+        memoria_mb=384,
     ),
 )
 

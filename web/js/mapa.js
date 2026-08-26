@@ -600,26 +600,10 @@ export function refrescarDatos() {
   if (fuente) fuente.setTiles([`${location.origin}/api/tiles/{z}/{x}/{y}.pbf?v=${Date.now()}`]);
 }
 
-/**
- * Mapa base apagado del todo.
- *
- * Lo pide el relieve. El mapa plano se dibuja siempre a altura cero, y el
- * terreno con relieve baja y sube: mirando de lado, el plano aparecia
- * atravesando las laderas y tapando lo que hay detras. Como el relieve ya
- * lleva su propia ortoimagen encima, la solucion no es ordenarlos sino
- * quitar el de abajo mientras el otro esta puesto.
- */
-let baseApagada = false;
-
-export function apagarBase(apagar) {
-  baseApagada = Boolean(apagar);
-  cambiarBase(baseGuardada());
-}
-
 export function cambiarBase(cual) {
   if (!BASES[cual]) return;
   for (const [clave, base] of Object.entries(BASES)) {
-    const como = !baseApagada && clave === cual ? 'visible' : 'none';
+    const como = clave === cual ? 'visible' : 'none';
     for (const id of base.capas) {
       if (mapa.getLayer(id)) mapa.setLayoutProperty(id, 'visibility', como);
     }

@@ -33,7 +33,7 @@
  */
 
 import { api, avisar } from './util.js';
-import { mapa, cambiarBase, baseGuardada, apagarBase, mostrarBrujula } from './mapa.js';
+import { mapa, cambiarBase, baseGuardada, mostrarBrujula } from './mapa.js';
 
 const VENDOR = '/vendor';
 
@@ -59,75 +59,6 @@ let basePrevia = null;
 // del vuelo se funde con lo que hay alrededor y se lee como lo que es, un
 // trozo de terreno mejor levantado que el resto.
 const BASE_PARA_3D = 'satelite';
-
-/* Relieve del terreno alrededor del modelo
- * ----------------------------------------
- * El vuelo cubre 545 x 478 m y se corta en seco: fuera de ahi el mapa es
- * plano, asi que el cerro parece una isla recortada flotando. Con el relieve
- * encendido, la ladera continua mas alla del borde del vuelo.
- *
- * Lo dibuja deck.gl y NO MapLibre, aunque MapLibre sabe hacer terreno. La
- * razon es que la superposicion de deck mantiene su propia camara y no sigue
- * al terreno de MapLibre -comprobado con setCenterElevation-, asi que un
- * terreno de MapLibre quedaria desalineado del modelo. Estando los dos en
- * deck comparten camara y buffer de profundidad, y encajan por construccion.
- *
- * Va apagado por defecto: son teselas de altura y de imagen que no todo el
- * mundo necesita, y en campo el ancho de banda es el recurso escaso.
- */
-// Modelo digital del terreno de Mapzen/AWS. Publico, sin clave y sin cuota.
-const DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
-// Y encima, la misma ortoimagen que ya usa el mapa base «Satelite».
-const IMAGEN_TERRENO =
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-
-// El DEM de Mapzen no pasa de aqui. Por encima, deck reescala el ultimo.
-const DEM_ZOOM_MAX = 15;
-
-/**
- * Alturas entre las que se mueve el terreno, en metros y ya apoyado.
- *
- * Sin esto, la libreria no sabe a que altura esta el suelo y para elegir que
- * teselas pedir se pone en lo peor: como el formato Terrarium puede codificar
- * desde -32.768 m, calculaba una huella de miles de kilometros y traia el
- * terreno en ZOOM 5 -unos 5 km por pixel- en vez del 15. Por eso lo de
- * alrededor se veia oscuro y emborronado cuanto mas se acercaba uno: no era
- * sombreado, era un mapa de altura mil veces mas basto de lo que tocaba.
- *
- * Los numeros son del sitio: el fondo del valle de Cali queda unos 500 m por
- * debajo de la explanada del monumento, y los cerros de alrededor unos 600
- * por encima.
- */
-const RANGO_ALTURAS = [-600, 600];
-/**
- * Cuanto se hunde el relieve por debajo de su altura medida, en metros.
- *
- * El DEM publico tiene una celda de unos 30 m y el vuelo, 2 cm: son la misma
- * ladera contada con detalles muy distintos, y donde el DEM suaviza una arista
- * queda por encima de la malla y la corta. Medido sobre 22 puntos del vuelo:
- * las dos superficies concuerdan con una mediana de -1,7 m -o sea que la
- * correccion del geoide es correcta- pero el DEM asoma hasta 9,6 m en las
- * vaguadas del flanco oeste.
- *
- * Hundiendolo doce metros, la malla del vuelo gana siempre. El precio es un
- * escaloncito de esa altura en el borde del vuelo, que sobre un cerro de 172 m
- * de desnivel apenas se nota y ademas deja claro hasta donde llego el dron.
- * Que el terreno bastо corte el monumento es mucho peor.
- */
-const HOLGURA_RELIEVE = 12;
-
-const LLAVE_RELIEVE = 'geovisor.relieve3d';
-let conRelieve = false;
-try { conRelieve = localStorage.getItem(LLAVE_RELIEVE) === 'si'; } catch { conRelieve = false; }
-
-export const hayRelieve = () => conRelieve;
-
-export function fijarRelieve(encendido) {
-  conRelieve = Boolean(encendido);
-  try { localStorage.setItem(LLAVE_RELIEVE, conRelieve ? 'si' : 'no'); } catch { /* modo privado */ }
-  apagarBase(conRelieve && encendidos.size > 0);
-  repintar();
-}
 
 const COLOR_BORRADOR = [255, 209, 102];
 const COLOR_VERTICE = [255, 255, 255];
@@ -169,9 +100,6 @@ const OPCIONES_CARGA = {
     libraryPath: `${VENDOR}/draco/`,
     decoderType: 'wasm',
   },
-  // El que convierte las teselas de altura en malla. Mismo motivo: de serie
-  // se lo pide a unpkg.com.
-  terrain: { workerUrl: `${VENDOR}/terrain-worker.js` },
 };
 
 // ---------------------------------------------------------------------------
@@ -205,9 +133,6 @@ function permitirVista3D() {
 
 function devolverVista2D() {
   if (!camaraPrevia) return;
-  // El relieve no tiene sentido sin modelo, y dejarlo encendido con el mapa
-  // plano apagado dejaria el visor sin fondo.
-  apagarBase(false);
   mostrarBrujula(false);
   mapa.dragRotate.disable();
   mapa.touchZoomRotate.disableRotation();
@@ -375,56 +300,9 @@ function capasDeMarcas() {
   return capas;
 }
 
-/**
- * Altura que el DEM da bajo el modelo encendido, para alinearlos.
- *
- * Sin esto el terreno saldria a su altura sobre el nivel del mar y el modelo
- * a la suya sobre el elipsoide, con unos 25 m de diferencia en Cali: el cerro
- * atravesaria el vuelo por abajo o lo dejaria flotando.
- */
-function alturaDemActiva() {
-  for (const estado of encendidos.values()) {
-    const dem = estado.item.fuente?.modelo?.altura_dem;
-    if (Number.isFinite(dem) && dem !== 0) return dem;
-  }
-  return null;
-}
-
-function capasDeRelieve() {
-  if (!conRelieve || !encendidos.size) return [];
-  const dem = alturaDemActiva();
-  if (dem === null) return [];      // modelo sin calibrar: mejor no dibujarlo
-
-  // Sin recorte. Antes se traia solo un cuadro alrededor del vuelo, pero
-  // como el relieve sustituye al mapa plano, fuera de ese cuadro quedaba el
-  // vacio en cuanto alguien se alejaba o giraba. Se cargan solo las teselas
-  // que caben en pantalla, asi que cubrir todo no cuesta mas.
-  return [new deck.TerrainLayer({
-    id: 'relieve',
-    elevationData: DEM,
-    texture: IMAGEN_TERRENO,
-    maxZoom: DEM_ZOOM_MAX,
-    zRange: RANGO_ALTURAS,
-    // Formato Terrarium: la altura viene repartida en los tres canales. El
-    // desplazamiento estandar es -32768; se le resta ademas la altura del
-    // terreno bajo el modelo para que los dos queden al mismo nivel.
-    elevationDecoder: {
-      rScaler: 256, gScaler: 1, bScaler: 1 / 256,
-      offset: -32768 - dem - HOLGURA_RELIEVE,
-    },
-    loadOptions: OPCIONES_CARGA,
-    // Sin sombreado propio: la ortoimagen ya trae las sombras del dia que se
-    // tomo, y anadirle otras encima ensucia el relieve en vez de aclararlo.
-    material: false,
-  })];
-}
-
 function repintar() {
   if (!overlay) return;
   const capas = [];
-  // El relieve va PRIMERO para que quede debajo. Los dos escriben
-  // profundidad, asi que donde el vuelo esta por encima, gana el vuelo.
-  capas.push(...capasDeRelieve());
   for (const [clave, estado] of encendidos) capas.push(capaDelModelo(clave, estado));
   capas.push(...capasDeMarcas());
   overlay.setProps({ layers: capas });
@@ -448,7 +326,6 @@ export async function encender(item) {
   }
 
   encendidos.set(item.id, { item });
-  if (conRelieve) apagarBase(true);
   if (!overlay) {
     // `interleaved: false` -la superposicion va por encima del mapa, con su
     // propio lienzo- y no true. Interleaved mete las capas de deck dentro de
@@ -459,15 +336,13 @@ export async function encender(item) {
     overlay = new deck.MapboxOverlay({
       interleaved: false, layers: [],
       // El plano lejano de deck.gl se pega al suelo: de serie llega solo un
-      // 1% mas alla de la altura de la camara. Todo lo que quede POR DEBAJO
-      // del nivel cero se recorta, y el relieve queda por debajo casi
-      // entero. Mirando de lado no se notaba -ahi la camara ve muy lejos-,
-      // pero en vista cenital desaparecia el terreno y quedaba el modelo
-      // flotando sobre el fondo negro. Ampliandolo un 30% cabe la ladera.
+      // 1% mas alla de la altura de la camara, y todo lo que quede POR DEBAJO
+      // del nivel cero se recorta. El vuelo baja hasta 80 m por debajo de la
+      // explanada, asi que en vista cenital se le comia la parte de abajo de
+      // la ladera. Un 30% mas de alcance basta.
       //
-      // Ni un poco mas: con 6 el terreno vuelve, pero la profundidad pierde
-      // tanta precision que la malla del vuelo y el terreno se pelean pixel
-      // a pixel y sale un mosaico. Probado.
+      // Ni mucho mas: ampliarlo de mas le quita precision al buffer de
+      // profundidad y las superficies empiezan a pelearse pixel a pixel.
       views: new deck.MapView({ farZMultiplier: 1.3 }),
     });
     mapa.addControl(overlay);

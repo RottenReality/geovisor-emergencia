@@ -447,7 +447,6 @@ def _datos_del_modelo(fuente: fuentes.Fuente) -> dict:
             "resolucion_cm": modelo.resolucion_cm,
             "zoom_llegada": modelo.zoom_llegada,
             "detalle": modelo.detalle,
-            "altura_dem": modelo.altura_dem,
             "memoria_mb": modelo.memoria_mb,
         },
         "bounds": list(modelo.caja),
