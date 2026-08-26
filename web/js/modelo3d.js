@@ -33,7 +33,7 @@
  */
 
 import { api, avisar } from './util.js';
-import { mapa, cambiarBase, baseGuardada } from './mapa.js';
+import { mapa, cambiarBase, baseGuardada, apagarBase, mostrarBrujula } from './mapa.js';
 
 const VENDOR = '/vendor';
 
@@ -83,11 +83,6 @@ const IMAGEN_TERRENO =
 
 // El DEM de Mapzen no pasa de aqui. Por encima, deck reescala el ultimo.
 const DEM_ZOOM_MAX = 15;
-// Cuanto terreno se trae alrededor del vuelo, en grados (~2,8 km). Suficiente
-// para que el borde no se vea a los zooms a los que se mira un modelo, y no
-// tanto como para descargar media cordillera.
-const MARGEN_RELIEVE = 0.025;
-
 /**
  * Cuanto se hunde el relieve por debajo de su altura medida, en metros.
  *
@@ -114,6 +109,7 @@ export const hayRelieve = () => conRelieve;
 export function fijarRelieve(encendido) {
   conRelieve = Boolean(encendido);
   try { localStorage.setItem(LLAVE_RELIEVE, conRelieve ? 'si' : 'no'); } catch { /* modo privado */ }
+  apagarBase(conRelieve && encendidos.size > 0);
   repintar();
 }
 
@@ -177,16 +173,26 @@ function permitirVista3D() {
   mapa.dragRotate.enable();
   mapa.touchZoomRotate.enableRotation();
 
+  mostrarBrujula(true);
+
   basePrevia = baseGuardada();
   if (basePrevia !== BASE_PARA_3D) {
     cambiarBase(BASE_PARA_3D);
     avisar('Se cambió a Satélite mientras miras el modelo 3D. '
-           + 'Puedes elegir otro mapa base cuando quieras.');
+           + 'Puedes elegir otro mapa base cuando quieras. '
+           + 'La brújula de arriba a la derecha devuelve la vista.');
+  } else {
+    avisar('Arrastra con el botón derecho para inclinar y girar. '
+           + 'La brújula de arriba a la derecha devuelve la vista.');
   }
 }
 
 function devolverVista2D() {
   if (!camaraPrevia) return;
+  // El relieve no tiene sentido sin modelo, y dejarlo encendido con el mapa
+  // plano apagado dejaria el visor sin fondo.
+  apagarBase(false);
+  mostrarBrujula(false);
   mapa.dragRotate.disable();
   mapa.touchZoomRotate.disableRotation();
   mapa.easeTo({ pitch: camaraPrevia.pitch, bearing: camaraPrevia.bearing, duration: 400 });
@@ -373,17 +379,14 @@ function capasDeRelieve() {
   const dem = alturaDemActiva();
   if (dem === null) return [];      // modelo sin calibrar: mejor no dibujarlo
 
-  // Alrededor del primer modelo encendido.
-  const caja = [...encendidos.values()].map((e) => e.item.bounds).find(Boolean);
-  if (!caja) return [];
-  const extension = [caja[0] - MARGEN_RELIEVE, caja[1] - MARGEN_RELIEVE,
-                     caja[2] + MARGEN_RELIEVE, caja[3] + MARGEN_RELIEVE];
-
+  // Sin recorte. Antes se traia solo un cuadro alrededor del vuelo, pero
+  // como el relieve sustituye al mapa plano, fuera de ese cuadro quedaba el
+  // vacio en cuanto alguien se alejaba o giraba. Se cargan solo las teselas
+  // que caben en pantalla, asi que cubrir todo no cuesta mas.
   return [new deck.TerrainLayer({
     id: 'relieve',
     elevationData: DEM,
     texture: IMAGEN_TERRENO,
-    extent: extension,
     maxZoom: DEM_ZOOM_MAX,
     // Formato Terrarium: la altura viene repartida en los tres canales. El
     // desplazamiento estandar es -32768; se le resta ademas la altura del
@@ -428,6 +431,7 @@ export async function encender(item) {
   }
 
   encendidos.set(item.id, { item });
+  if (conRelieve) apagarBase(true);
   if (!overlay) {
     // `interleaved: false` -la superposicion va por encima del mapa, con su
     // propio lienzo- y no true. Interleaved mete las capas de deck dentro de

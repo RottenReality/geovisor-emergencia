@@ -16,7 +16,7 @@
 import { api, avisar, escapar, descargarArchivo, formatearPeso, $ } from './util.js';
 import * as pila from './pila.js';
 import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster,
-         zoomQueFalta, fijarFiltroCatastro, inclinar, mapa } from './mapa.js';
+         zoomQueFalta, fijarFiltroCatastro, inclinar, enderezar, mapa } from './mapa.js';
 import * as filtroCatastro from './filtro-catastro.js';
 import * as modelo3d from './modelo3d.js';
 import * as simbologia from './simbologia.js';
@@ -700,6 +700,11 @@ function pintarFilaExterna(item) {
         ${selectorDeGrupo(item)}
         <div class="fila" style="margin-top:8px">
           <button data-accion="encuadrar">Ir a la capa</button>
+          ${item.fuente.tipo === 'modelo3d' ? `
+            <button data-accion="enderezar"
+                    title="Devuelve la cámara a la vertical, mirando al norte. También lo hace la brújula de arriba a la derecha.">
+              Vista desde arriba
+            </button>` : ''}
           ${item.fuente.url ? `
             <a class="boton-enlace" href="${escapar(item.fuente.url)}"
                target="_blank" rel="noopener">Ver el servicio</a>` : ''}
@@ -790,6 +795,9 @@ async function manejarExterna(accion, item, clave) {
       await cargar();
       break;
 
+    case 'enderezar':
+      enderezar();
+      return;
     case 'encuadrar':
       await irAExterna(item);
       break;

@@ -57,7 +57,13 @@ const estilo = {
   glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
   sprite: 'https://tiles.openfreemap.org/sprites/ofm_f384/ofm',
   sources: {
-    satelite: { type: 'raster', tileSize: 256,
+    // maxzoom 19 NO es hasta donde se ve, sino hasta donde hay foto. Sobre
+    // Cali, Esri no pasa de ahi: a partir del 20 devuelve un 200 con una
+    // tesela gris que pone «Map data not yet available», y el mapa entero se
+    // llena de ese cartel justo al acercarse a mirar una grieta. Con el
+    // techo puesto, MapLibre estira la ultima foto buena, que se ve borrosa
+    // pero es la imagen que hay.
+    satelite: { type: 'raster', tileSize: 256, maxzoom: 19,
       tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
       attribution: 'Esri · Maxar · Earthstar Geographics' },
     calles: { type: 'raster', tileSize: 256, maxzoom: 19,
@@ -594,10 +600,26 @@ export function refrescarDatos() {
   if (fuente) fuente.setTiles([`${location.origin}/api/tiles/{z}/{x}/{y}.pbf?v=${Date.now()}`]);
 }
 
+/**
+ * Mapa base apagado del todo.
+ *
+ * Lo pide el relieve. El mapa plano se dibuja siempre a altura cero, y el
+ * terreno con relieve baja y sube: mirando de lado, el plano aparecia
+ * atravesando las laderas y tapando lo que hay detras. Como el relieve ya
+ * lleva su propia ortoimagen encima, la solucion no es ordenarlos sino
+ * quitar el de abajo mientras el otro esta puesto.
+ */
+let baseApagada = false;
+
+export function apagarBase(apagar) {
+  baseApagada = Boolean(apagar);
+  cambiarBase(baseGuardada());
+}
+
 export function cambiarBase(cual) {
   if (!BASES[cual]) return;
   for (const [clave, base] of Object.entries(BASES)) {
-    const como = clave === cual ? 'visible' : 'none';
+    const como = !baseApagada && clave === cual ? 'visible' : 'none';
     for (const id of base.capas) {
       if (mapa.getLayer(id)) mapa.setLayoutProperty(id, 'visibility', como);
     }
@@ -605,6 +627,34 @@ export function cambiarBase(cual) {
     if (boton) boton.setAttribute('aria-pressed', String(clave === cual));
   }
   localStorage.setItem('geovisor.base', cual);
+}
+
+/**
+ * Brujula, solo mientras se mira algo en 3D.
+ *
+ * El visor arranca sin ella porque tampoco se puede girar el mapa. Al
+ * encender un modelo si se puede, y entonces hace falta: quien inclina la
+ * camara para mirar una fachada se queda sin forma evidente de volver a la
+ * vista de arriba. Pulsando la brujula se enderezan de golpe el giro y la
+ * inclinacion.
+ */
+let brujula = null;
+
+export function mostrarBrujula(mostrar) {
+  if (mostrar && !brujula) {
+    brujula = new maplibregl.NavigationControl({
+      showZoom: false, showCompass: true, visualizePitch: true,
+    });
+    mapa.addControl(brujula, 'top-right');
+  } else if (!mostrar && brujula) {
+    mapa.removeControl(brujula);
+    brujula = null;
+  }
+}
+
+/** Devuelve la camara a la vertical, mirando al norte. */
+export function enderezar() {
+  mapa.easeTo({ pitch: 0, bearing: 0, duration: 600 });
 }
 
 export function baseGuardada() {
