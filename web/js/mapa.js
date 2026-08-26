@@ -646,6 +646,14 @@ export function mostrarBrujula(mostrar) {
       showZoom: false, showCompass: true, visualizePitch: true,
     });
     mapa.addControl(brujula, 'top-right');
+    // MapLibre rotula sus controles en ingles y el resto del visor esta en
+    // espanol. Es el unico sitio donde se leeria «click to reset north».
+    const boton = document.querySelector('.maplibregl-ctrl-compass');
+    if (boton) {
+      const texto = 'Arrastra para girar; pulsa para volver a la vista desde arriba';
+      boton.title = texto;
+      boton.setAttribute('aria-label', texto);
+    }
   } else if (!mostrar && brujula) {
     mapa.removeControl(brujula);
     brujula = null;
