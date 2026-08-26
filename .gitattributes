@@ -4,3 +4,8 @@
 *.yml  text eol=lf
 Caddyfile text eol=lf
 Dockerfile text eol=lf
+
+# El descompresor Draco es WebAssembly. Si git le normaliza los saltos de
+# linea al pasar por Windows, el navegador ya no lo compila y el modelo 3D
+# se queda sin dibujar sin decir por que.
+*.wasm binary

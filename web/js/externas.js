@@ -94,7 +94,9 @@ async function precargar(fuente) {
   // El catastro no se descarga: se sirve en teselas desde la copia local, y
   // cuantas hay ya viene en el catalogo. Pedirle el .geojson serviria medio
   // millon de poligonos de golpe, que es justo lo que no puede pasar.
-  if (fuente.tipo === 'imagen' || fuente.tipo === 'catastro') return;
+  // Un modelo 3D tampoco: no es geometria vectorial sino una malla, y su
+  // .geojson devuelve un 400 a proposito.
+  if (['imagen', 'catastro', 'modelo3d'].includes(fuente.tipo)) return;
   const datos = await api(`/api/externas/${fuente.clave}.geojson`);
   totales[fuente.clave] = datos.features.length;
   sinUbicacion[fuente.clave] = datos.sin_ubicacion || 0;
@@ -115,7 +117,8 @@ export async function encender(clave) {
   // El catastro no se dibuja por debajo de su zoom minimo, y el visor arranca
   // sobre toda Colombia. Sin este aviso, encender la capa deja el panel
   // diciendo 650.975 y el mapa vacio, que se lee como que no funciona.
-  const minimo = fuente.tipo === 'catastro' ? (fuente.zoom_min ?? 15) : null;
+  const conMinimo = ['catastro', 'modelo3d'].includes(fuente.tipo);
+  const minimo = conMinimo ? (fuente.zoom_min ?? 15) : null;
   if (minimo != null && mapa.getZoom() < minimo) {
     avisar(`«${fuente.nombre}» se dibuja desde el zoom ${minimo}. `
            + 'Acércate, o abre sus opciones en el panel y pulsa «Ir a la capa».');
@@ -185,6 +188,13 @@ async function abrir() {
 /** Cuenta cuantas hay y de cuando, sin volver a pedir los datos. */
 function pista(fuente) {
   if (fuente.tipo === 'imagen') return 'ortoimagen';
+  if (fuente.tipo === 'modelo3d') {
+    // No hay nada que contar -no son elementos sino una malla-, asi que se
+    // dice lo que si decide si sirve: cuanto detalle tiene y desde donde.
+    const detalle = fuente.modelo?.resolucion_cm
+      ? `${fuente.modelo.resolucion_cm} cm/píxel` : 'malla 3D';
+    return `${detalle} · desde zoom ${fuente.zoom_min}`;
+  }
   if (fuente.tipo === 'catastro') {
     const cuantas = fuente.total == null ? 'sin importar'
       : `${fuente.total.toLocaleString('es-CO')} polígonos`;

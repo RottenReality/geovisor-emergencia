@@ -84,6 +84,27 @@ CREATE INDEX IF NOT EXISTS idx_elementos_geom  ON elementos USING GIST (geom);
 CREATE INDEX IF NOT EXISTS idx_elementos_capa  ON elementos (capa_id);
 CREATE INDEX IF NOT EXISTS idx_elementos_props ON elementos USING GIN (propiedades);
 
+-- Anotaciones sobre un modelo 3D: la misma marca, pegada a la superficie.
+--
+-- Columna aparte y NO `geom` con Z, a proposito. Ensanchar `geom` obliga a un
+-- ALTER COLUMN TYPE, que reescribe la tabla entera, rehace los cuatro indices
+-- -uno de ellos GIST- y exige tirar y rehacer v_elementos_oficial_co, porque
+-- una vista dependiente bloquea el cambio de tipo. Sobre las 20.000 geometrias
+-- que el equipo ya tiene dibujadas, eso es tocar el trabajo de todos para
+-- anadir una funcion que casi ninguna capa usa. Un ADD COLUMN nulo no lee ni
+-- escribe una sola fila.
+--
+-- Cuando se marca una grieta sobre el modelo se guardan las DOS geometrias:
+--   geom     la sombra en planta. Es la que ya usan las teselas, la tabla de
+--            atributos, la ficha, las descargas y la vista oficial en 9377.
+--            Nada de eso se entera de que existe el 3D.
+--   geom_3d  la linea pegada a la superficie, en altura elipsoidal.
+--
+-- La segunda hace falta porque la primera miente al medir: una grieta vertical
+-- de tres metros mide casi cero en planta. La longitud de verdad es
+-- ST_3DLength(geom_3d), y es la que se muestra cuando hay 3D.
+ALTER TABLE elementos ADD COLUMN IF NOT EXISTS geom_3d GEOMETRY(GeometryZ, 4326);
+
 CREATE OR REPLACE FUNCTION tocar_actualizado_en() RETURNS TRIGGER AS $$
 BEGIN
   NEW.actualizado_en := now();

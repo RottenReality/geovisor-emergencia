@@ -1291,6 +1291,14 @@ body.con-nota .maplibregl-ctrl-top-right { margin-top: 124px; }
   letter-spacing: .04em;
 }
 
+/* Un modelo 3D no se mira como las demas capas -hay que inclinar la camara-,
+   asi que su chip no se confunde con el de una fuente externa cualquiera. */
+.estado.tipo.tridi {
+  color: #d9b8ff;
+  border-color: rgba(199, 125, 255, .5);
+  background: rgba(199, 125, 255, .12);
+}
+
 /* --- Opciones de un grupo ------------------------------------------------ */
 /* Mismo aspecto que el detalle de una capa: es la misma clase de decision, y
    antes vivia en un cuadro de texto donde habia que escribir DISOLVER. */

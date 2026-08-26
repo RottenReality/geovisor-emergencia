@@ -9,11 +9,28 @@
 import { api, avisar, longitudDe, areaDe, formatearArea, formatearLongitud, escapar, $ } from './util.js';
 import { mapa, coleccionVacia, refrescarDatos } from './mapa.js';
 import { capasVectoriales, asegurarVisible } from './capas.js';
+import * as modelo3d from './modelo3d.js';
 
 let modo = null;          // null | 'punto' | 'linea' | 'poligono'
 let vertices = [];
+/**
+ * Altura de cada vertice, cuando se esta marcando sobre un modelo 3D.
+ *
+ * Va en paralelo a `vertices` y no dentro de ellos para no tocar nada de lo
+ * que ya funciona: la medicion, la vista previa y el guardado siguen viendo
+ * exactamente las mismas parejas [lon, lat] de antes. Si no hay modelo
+ * encendido, esto se queda vacio y no cambia una sola linea del recorrido.
+ */
+let alturas = [];
+// Ultima vez que se pregunto a la malla, para no hacerlo en cada pixel que
+// recorre el raton: cada consulta obliga a deck a redibujar la escena en su
+// buffer de seleccion, y sobre una malla de 90 teselas eso se nota.
+let ultimoSondeo = 0;
+let alturaCursor = null;
+const MS_ENTRE_SONDEOS = 90;
 let posicionCursor = null;
 let geometriaPendiente = null;
+let geometria3dPendiente = null;
 let alGuardar = () => {};
 
 // Memoria de la sesion de digitalizacion. Mapear 80 manzanas afectadas
@@ -90,7 +107,10 @@ function mostrarContador() {
 export function activar(nuevo) {
   modo = modo === nuevo ? null : nuevo;
   vertices = [];
+  alturas = [];
   posicionCursor = null;
+  alturaCursor = null;
+  modelo3d.previsualizar(null);
 
   for (const [clave, boton] of Object.entries(BOTONES)) {
     boton.setAttribute('aria-pressed', String(clave === modo));
@@ -120,7 +140,23 @@ export function activar(nuevo) {
 
 function alHacerClic(evento) {
   if (!modo) return;
-  vertices.push([evento.lngLat.lng, evento.lngLat.lat]);
+
+  if (modelo3d.hayModelo()) {
+    // Sobre un modelo, el punto bueno es el de la superficie, no el que da
+    // MapLibre: ese es donde el rayo corta el plano del suelo y con la camara
+    // inclinada puede caer decenas de metros ladera abajo del sitio senalado.
+    const punto = modelo3d.puntoEn(evento.point);
+    if (!punto) {
+      avisar('Ahí no hay superficie del modelo. Marca sobre la malla.', true);
+      return;
+    }
+    vertices.push([punto[0], punto[1]]);
+    alturas.push(punto[2]);
+  } else {
+    vertices.push([evento.lngLat.lng, evento.lngLat.lat]);
+    alturas.push(null);
+  }
+
   if (modo === 'punto') { finalizar(); return; }
   $('finalizar').disabled = vertices.length < (modo === 'poligono' ? 3 : 2);
   pintar();
@@ -129,7 +165,43 @@ function alHacerClic(evento) {
 function alMover(evento) {
   if (!modo || modo === 'punto' || vertices.length === 0) return;
   posicionCursor = [evento.lngLat.lng, evento.lngLat.lat];
+
+  if (modelo3d.hayModelo()) {
+    const ahora = Date.now();
+    if (ahora - ultimoSondeo < MS_ENTRE_SONDEOS) return;
+    ultimoSondeo = ahora;
+    const punto = modelo3d.puntoEn(evento.point);
+    // Fuera de la malla se deja la goma donde estaba: parpadear entre el
+    // suelo y la ladera cada vez que el raton cruza un hueco marea.
+    if (punto) posicionCursor = [punto[0], punto[1]];
+    alturaCursor = punto ? punto[2] : null;
+  }
   pintar();
+}
+
+/** Los vertices ya puestos, con su altura, para pintarlos sobre el modelo. */
+const vertices3d = () => vertices
+  .map((v, i) => [v[0], v[1], alturas[i]])
+  .filter((v) => Number.isFinite(v[2]));
+
+/**
+ * La misma marca que `geometriaActual`, pero con la altura de cada vertice.
+ *
+ * Devuelve null salvo que TODOS los vertices se hayan tomado de la malla:
+ * media geometria a ras de suelo y media pegada a la fachada no mide nada
+ * util y seria peor que no guardar 3D.
+ */
+function geometria3dActual() {
+  if (!alturas.length || alturas.some((z) => !Number.isFinite(z))) return null;
+  const puntos = vertices.map((v, i) => [v[0], v[1], alturas[i]]);
+  if (modo === 'punto' || puntos.length === 1) {
+    return { type: 'Point', coordinates: puntos[0] };
+  }
+  if (modo === 'poligono' && puntos.length >= 3) {
+    return { type: 'Polygon', coordinates: [[...puntos, puntos[0]]] };
+  }
+  if (puntos.length >= 2) return { type: 'LineString', coordinates: puntos };
+  return null;
 }
 
 function alDobleClic(evento) {
@@ -161,6 +233,17 @@ function pintar() {
     coleccion.features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: v }, properties: {} });
   }
   fuente.setData(coleccion);
+
+  // El lienzo de deck tapa el de MapLibre donde el modelo es opaco, asi que
+  // esta misma linea hay que volver a pintarla alli o se marca a ciegas.
+  if (modelo3d.hayModelo()) {
+    const puestos = vertices3d();
+    const conCursor = posicionCursor && Number.isFinite(alturaCursor)
+      ? [...puestos, [posicionCursor[0], posicionCursor[1], alturaCursor]]
+      : puestos;
+    modelo3d.previsualizar(conCursor, modo === 'poligono');
+  }
+
   actualizarMedicion();
 }
 
@@ -186,7 +269,9 @@ function finalizar() {
   if (!destino) { avisar('Elige o crea una capa donde guardar.', true); return; }
 
   posicionCursor = null;
+  alturaCursor = null;
   geometriaPendiente = geometriaActual(false);
+  geometria3dPendiente = geometria3dActual();
   if (!geometriaPendiente) { avisar('No se pudo construir la geometría.', true); return; }
 
   // Sin preguntar solo tiene sentido cuando ya hay algo que repetir: la
@@ -227,6 +312,7 @@ function agregarPar(clave = '', valor = '') {
 function descartar() {
   $('telon-atributos').classList.remove('visible');
   geometriaPendiente = null;
+  geometria3dPendiente = null;
   activar(null);
 }
 
@@ -262,6 +348,10 @@ async function guardar({ directo = false } = {}) {
         capa_id: destino.id,
         propiedades,
         geometria: geometriaPendiente,
+        // Solo va cuando la marca se tomo entera de la malla. El servidor
+        // guarda las dos: esta mide de verdad, la de arriba es la que sale en
+        // el mapa plano. Ver db/init.sql.
+        ...(geometria3dPendiente ? { geometria_3d: geometria3dPendiente } : {}),
       }),
     });
   } catch (error) {
@@ -275,8 +365,11 @@ async function guardar({ directo = false } = {}) {
   mostrarContador();
 
   $('telon-atributos').classList.remove('visible');
+  const era3d = Boolean(geometria3dPendiente);
   geometriaPendiente = null;
+  geometria3dPendiente = null;
   refrescarDatos();
+  if (era3d) modelo3d.refrescarAnotaciones();
   alGuardar();
 
   // Digitalizacion en cadena: la herramienta se rearma sola con la misma

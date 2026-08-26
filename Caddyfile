@@ -34,6 +34,13 @@
 	@vendor path /vendor/*
 	header @vendor Cache-Control "public, max-age=604800, immutable"
 
+	# El descompresor Draco es WebAssembly y el navegador solo lo compila al
+	# vuelo si el tipo es exactamente este. Sin la cabecera, Go lo sirve como
+	# octet-stream, la compilacion en streaming falla y las mallas del modelo
+	# 3D se quedan sin dibujar sin decir por que.
+	@wasm path *.wasm
+	header @wasm Content-Type application/wasm
+
 	header {
 		X-Content-Type-Options nosniff
 		X-Frame-Options SAMEORIGIN

@@ -1,6 +1,7 @@
 /* Mapa, mapas base, capas dinamicas y coordenadas del cursor. */
 
 import { a9377 } from './proyeccion.js';
+import * as modelo3d from './modelo3d.js';
 import { $, numero } from './util.js';
 import { COLOMBIA } from './ciudades.js';
 
@@ -227,7 +228,9 @@ const esCatastro = (item) => item.fuente?.tipo === 'catastro';
  * leyenda y el panel pueden decir que falta acercarse en vez de callarse.
  */
 export function zoomQueFalta(item) {
-  if (!esCatastro(item)) return null;
+  // Un modelo 3D son 545 m de lado: a escala de ciudad es una mancha parda de
+  // pocos pixeles que cuesta megabytes. Mismo trato que el catastro.
+  if (!esCatastro(item) && !modelo3d.esModelo3D(item)) return null;
   const minimo = item.fuente.zoom_min ?? 15;
   return mapa.getZoom() < minimo ? minimo : null;
 }
@@ -270,6 +273,13 @@ function radioDe(item) {
 }
 
 function montarExterna(item, clave) {
+  // No lo pinta MapLibre sino deck.gl, en su propia superposicion. No hay
+  // fuente ni capa que anadir aqui: solo avisar al modulo que lo lleva.
+  if (modelo3d.esModelo3D(item)) {
+    modelo3d.encender(item);
+    return;
+  }
+
   if (esImagen(item)) {
     if (!mapa.getSource(clave)) {
       mapa.addSource(clave, {
@@ -365,6 +375,10 @@ export function sincronizarCapas(items) {
   // Quitar lo que ya no existe.
   for (const clave of montadas) {
     if (deseadas.includes(clave)) continue;
+    // Los modelos 3D no tienen capas de MapLibre que quitar; se apagan en su
+    // propio modulo. La clave del panel es `ext-<id>`, y ahi el id es la
+    // clave de la fuente.
+    if (clave.startsWith('ext-')) modelo3d.apagar(clave.slice(4));
     for (const sufijo of ['', ...PARTES_VECTOR]) {
       const id = clave + sufijo;
       if (mapa.getLayer(id)) mapa.removeLayer(id);
@@ -377,6 +391,13 @@ export function sincronizarCapas(items) {
   // Anadir lo que falta.
   for (const item of items) {
     const clave = claveDe(item);
+    // Un modelo 3D no deja rastro en MapLibre, asi que la comprobacion de mas
+    // abajo -«ya existe su capa»- nunca se cumpliria y se remontaria en cada
+    // sincronizacion. Se pregunta a quien lo sabe.
+    if (modelo3d.esModelo3D(item)) {
+      if (!montadas.includes(clave)) montarExterna(item, clave);
+      continue;
+    }
     if (montadas.includes(clave) && mapa.getLayer(esImagen(item) ? clave : `${clave}-relleno`)) continue;
 
     if (item.esExterna) {
@@ -444,6 +465,11 @@ export function aplicarEstilos(items) {
     const clave = claveDe(item);
     const visible = item.visible ? 'visible' : 'none';
     const opacidad = item.opacidad ?? 1;
+
+    if (modelo3d.esModelo3D(item)) {
+      modelo3d.ajustar(item);
+      continue;
+    }
 
     if (esImagen(item)) {
       if (!mapa.getLayer(clave)) continue;
@@ -565,6 +591,24 @@ export function encuadrar(extension, zoomMinimo = null) {
   }
   mapa.fitBounds([[extension[0], extension[1]], [extension[2], extension[3]]],
                  { padding: 60, maxZoom: 17 });
+}
+
+/**
+ * Deja la camara en perspectiva.
+ *
+ * Un modelo 3D visto en planta se confunde con una ortofoto de mala calidad:
+ * el relieve, que es todo lo que aporta, no se ve. Se inclina al llegar para
+ * que la primera impresion sea la correcta. 55 grados y no mas: pasados los
+ * 70 el horizonte se llena de nada y cuesta orientarse.
+ */
+export function inclinar(grados = 55) {
+  if (mapa.getPitch() >= grados - 5) return;
+  const aplicar = () => mapa.easeTo({ pitch: grados, duration: 900 });
+  // Un easeTo lanzado mientras el flyTo de «Ir a la capa» esta en el aire lo
+  // cancela y deja el mapa donde iba, no donde iba a llegar. Medido: el visor
+  // se quedaba en zoom 5 sobre Colombia entera en vez de en el 16 del modelo.
+  if (mapa.isMoving()) mapa.once('moveend', aplicar);
+  else aplicar();
 }
 
 /** Lectura continua de la posicion del cursor, en 4326 y en 9377. */

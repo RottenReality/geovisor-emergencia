@@ -10,8 +10,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from . import auth, config, db
-from .routers import (capas, export, externas, features, pila, rasters, subidas,
-                      uploads)
+from .routers import (capas, export, externas, features, modelos, pila, rasters,
+                      subidas, uploads)
 
 
 @asynccontextmanager
@@ -114,5 +114,6 @@ app.include_router(subidas.router)
 app.include_router(uploads.router)
 app.include_router(export.router)
 app.include_router(externas.router)
+app.include_router(modelos.router)
 app.include_router(pila.router)
 app.include_router(pila.grupos_router)

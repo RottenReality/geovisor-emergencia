@@ -33,7 +33,11 @@ const esImagen = (item) => Boolean(item.esRaster || item.esImagen);
 // Panel
 // ---------------------------------------------------------------------------
 export function abrirPanel() {
-  const comparables = items.filter((i) => !i.esRaster || i.estado === 'listo');
+  // El comparador es un segundo mapa de MapLibre, y un modelo 3D no lo pinta
+  // MapLibre sino deck.gl sobre el mapa principal. Ofrecerlo aqui dejaria un
+  // panel en negro sin explicacion, asi que no se ofrece.
+  const comparables = items.filter((i) =>
+    (!i.esRaster || i.estado === 'listo') && i.fuente?.tipo !== 'modelo3d');
   if (comparables.length < 2) {
     avisar('Hacen falta al menos dos capas para comparar.', true);
     return;

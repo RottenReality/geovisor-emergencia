@@ -29,7 +29,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from .. import config, db, fuentes, importar_catastro, visitados
+from .. import config, db, fuentes, importar_catastro, modelos3d, visitados
 from ..fechas import legible as fecha_legible
 from .. import pila as pila_logica
 from ..auth import requiere_sesion
@@ -423,6 +423,30 @@ def _ficha(fuente: fuentes.Fuente) -> dict:
         "total": guardado[2] if guardado else None,
         "descargado": round(time.time() - guardado[0]) if guardado else None,
         "sin_ubicacion": _sin_ubicacion.get(fuente.clave) or None,
+        # Un modelo 3D no se descarga ni se cuenta: lo que el navegador
+        # necesita saber es donde apoyarlo y a donde volar. Sale de
+        # modelos3d.py y no de la Fuente para que la geometria del modelo
+        # tenga un solo sitio donde vivir.
+        **_datos_del_modelo(fuente),
+    }
+
+
+def _datos_del_modelo(fuente: fuentes.Fuente) -> dict:
+    if fuente.tipo != "modelo3d":
+        return {}
+    modelo = modelos3d.POR_CLAVE.get(fuente.clave)
+    if modelo is None:
+        # Fuente declarada sin modelo detras. Se avisa en vez de romper el
+        # catalogo entero: el resto de capas no tienen la culpa.
+        return {"modelo": None}
+    return {
+        "modelo": {
+            "tileset": f"/api/modelos/{modelo.clave}/tileset.json",
+            "altura_base": modelo.altura_base,
+            "centro": list(modelo.centro),
+            "resolucion_cm": modelo.resolucion_cm,
+        },
+        "bounds": list(modelo.caja),
     }
 
 
@@ -555,6 +579,12 @@ def _buscar(clave: str) -> fuentes.Fuente:
 @router.get("/{clave}.geojson")
 async def datos(clave: str):
     fuente = _buscar(clave)
+    if fuente.tipo == "modelo3d":
+        # No hay geometria vectorial que servir: es una malla. Sin esto se
+        # intentaria descargar de una url vacia y el error no diria nada.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Es un modelo 3D: /api/modelos/{clave}/tileset.json")
     if fuente.tipo == "catastro":
         # Serviria medio millon de poligonos en una sola respuesta y tumbaria
         # el proceso. Se dice donde estan en vez de devolver un 500 opaco.
@@ -940,6 +970,11 @@ async def copiar(clave: str, datos_entrada: Copia, sesion: dict = Depends(requie
     puede simbolizar, filtrar, medir en 9377 y exportar como cualquier otra.
     """
     fuente = _buscar(clave)
+    if fuente.tipo == "modelo3d":
+        raise HTTPException(
+            status_code=400,
+            detail="Un modelo 3D ya es un archivo fijo en el servidor: no cambia bajo "
+                   "los pies y no hay nada que congelar.")
     if fuente.tipo == "catastro":
         # Copiar sirve para congelar una fuente que cambia bajo los pies. El
         # catastro no cambia -es una foto fija ya copiada aqui- y volcarlo a

@@ -16,7 +16,7 @@
 import { api, avisar, escapar, descargarArchivo, formatearPeso, $ } from './util.js';
 import * as pila from './pila.js';
 import { sincronizarCapas, aplicarEstilos, encuadrar, refrescarDatos, olvidarRaster,
-         zoomQueFalta, fijarFiltroCatastro, mapa } from './mapa.js';
+         zoomQueFalta, fijarFiltroCatastro, inclinar, mapa } from './mapa.js';
 import * as filtroCatastro from './filtro-catastro.js';
 import * as simbologia from './simbologia.js';
 import * as bandas from './bandas.js';
@@ -596,6 +596,21 @@ function pintarFila(item) {
  * en su lugar aparece lo unico que si es una decision del equipo: congelar una
  * copia fechada.
  */
+/**
+ * Que pone el distintivo de una fila del panel.
+ *
+ * Hasta ahora todas las capas de este panel eran servicios de fuera y ponia
+ * «ext». Un modelo 3D es un archivo del propio servidor y se mira de otra
+ * manera -inclinando la camara-, asi que se distingue de un vistazo. El
+ * distintivo REEMPLAZA al de zoom cuando hace falta ese: son dos etiquetas
+ * para el mismo hueco, y ponerlas juntas estruja el nombre de la capa.
+ */
+const distintivoDe = (item) => (item.fuente?.tipo === 'modelo3d' ? '3D' : 'ext');
+
+const pistaDeTipo = (item) => (item.fuente?.tipo === 'modelo3d'
+  ? 'Modelo 3D de un vuelo de dron, servido desde este servidor. Se mira inclinando la cámara: arrastra con el botón derecho.'
+  : 'Fuente externa.');
+
 function pintarFilaExterna(item) {
   const clave = `x${item.id}`;
   const clave2 = claveDePila(item);
@@ -628,8 +643,9 @@ function pintarFilaExterna(item) {
           ${escapar(item.nombre)}
         </button>
         ${falta ? `
-          <span class="estado sin-zoom" title="Fuente externa. Se dibuja desde el zoom ${falta}: acércate, o abre las opciones y pulsa «Ir a la capa».">z${falta}+</span>`
-          : '<span class="estado tipo">ext</span>'}
+          <span class="estado sin-zoom" title="${escapar(pistaDeTipo(item))} Se dibuja desde el zoom ${falta}: acércate, o abre las opciones y pulsa «Ir a la capa».">z${falta}+</span>`
+          : `<span class="estado tipo ${item.fuente?.tipo === 'modelo3d' ? 'tridi' : ''}"
+                   title="${escapar(pistaDeTipo(item))}">${distintivoDe(item)}</span>`}
         ${acotada ? `
           <button class="estado filtro" data-accion="quitar-filtro"
                   title="Estás viendo solo una parte de esta capa (${acotada} filtro${
@@ -672,10 +688,11 @@ function pintarFilaExterna(item) {
         ${selectorDeGrupo(item)}
         <div class="fila" style="margin-top:8px">
           <button data-accion="encuadrar">Ir a la capa</button>
-          <a class="boton-enlace" href="${escapar(item.fuente.url)}"
-             target="_blank" rel="noopener">Ver el servicio</a>
+          ${item.fuente.url ? `
+            <a class="boton-enlace" href="${escapar(item.fuente.url)}"
+               target="_blank" rel="noopener">Ver el servicio</a>` : ''}
         </div>
-        ${item.esImagen ? '' : `
+        ${item.esImagen || item.fuente.tipo === 'modelo3d' ? '' : `
           <button data-accion="tabla" style="width:100%;margin-top:8px">
             Tabla de atributos
           </button>`}
@@ -685,7 +702,7 @@ function pintarFilaExterna(item) {
              title="Abre el formulario de captura en una pestaña nueva">
             &#10010; Llenar el formulario
           </a>` : ''}
-        ${item.esImagen || item.fuente.tipo === 'catastro' ? '' : `
+        ${item.esImagen || ['catastro', 'modelo3d'].includes(item.fuente.tipo) ? '' : `
           <button data-accion="copiar" style="width:100%;margin-top:8px">
             Guardar copia fechada como capa
           </button>`}
@@ -789,10 +806,17 @@ async function manejarExterna(accion, item, clave) {
  *  que se calcula del propio GeoJSON: el navegador acaba de descargarlo para
  *  pintarlo, de modo que sale de su cache y no cuesta una peticion nueva. */
 async function irAExterna(item) {
-  // El catastro trae su extension del catalogo, pero encuadrarla entera deja
-  // el mapa por debajo del zoom al que la capa se dibuja.
-  const minimo = item.fuente?.tipo === 'catastro' ? (item.fuente.zoom_min ?? 15) : null;
-  if (item.bounds) { encuadrar(item.bounds, minimo); return; }
+  // El catastro y los modelos traen su extension del catalogo, pero encuadrar
+  // la entera deja el mapa por debajo del zoom al que la capa se dibuja.
+  const conMinimo = ['catastro', 'modelo3d'].includes(item.fuente?.tipo);
+  const minimo = conMinimo ? (item.fuente.zoom_min ?? 15) : null;
+  if (item.bounds) {
+    encuadrar(item.bounds, minimo);
+    // Un modelo mirado desde arriba parece una ortofoto mala. Se llega ya
+    // inclinado para que se vea que es lo que es.
+    if (item.fuente?.tipo === 'modelo3d') inclinar();
+    return;
+  }
   try {
     const datos = await api(`/api/externas/${item.id}.geojson`);
     let x1 = 180, y1 = 90, x2 = -180, y2 = -90;

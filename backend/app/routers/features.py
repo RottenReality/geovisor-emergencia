@@ -16,6 +16,10 @@ class ElementoEntrada(BaseModel):
     capa_id: int | None = None
     propiedades: dict[str, Any] = Field(default_factory=dict)
     geometria: dict[str, Any]
+    # Solo lo manda quien dibuja sobre un modelo 3D. Es la MISMA marca que
+    # `geometria` pero con la altura de cada vertice, tomada de la superficie
+    # de la malla. Ver el comentario de geom_3d en db/init.sql.
+    geometria_3d: dict[str, Any] | None = None
 
 
 class ElementoParche(BaseModel):
@@ -23,6 +27,7 @@ class ElementoParche(BaseModel):
     capa_id: int | None = None
     propiedades: dict[str, Any] | None = None
     geometria: dict[str, Any] | None = None
+    geometria_3d: dict[str, Any] | None = None
 
 
 @router.get("/features")
@@ -62,6 +67,54 @@ async def listar_features(capa_id: int | None = None, limite: int = 5000):
     }
 
 
+@router.get("/features/anotaciones-3d")
+async def anotaciones_3d(limite: int = 2000):
+    """Las marcas que se dibujaron sobre un modelo 3D, con su altura.
+
+    Van por su propio endpoint y no dentro de /features porque el 99% de los
+    elementos no tienen 3D y mandar la columna vacia en cada respuesta seria
+    engordar la lista general para nada. Aqui se piden una vez al encender el
+    modelo y se vuelven a pedir al guardar una marca nueva.
+
+    Se devuelve la longitud ya calculada: el navegador no puede sacarla bien
+    solo, porque sumar distancias en grados no da metros.
+    """
+    filas = await db.pool().fetch(
+        """
+        SELECT e.id, e.nombre, e.capa_id, e.autor, e.propiedades,
+               c.color AS color,
+               ST_AsGeoJSON(e.geom_3d) AS geom,
+               ST_3DLength(ST_Transform(e.geom_3d, 9377)) AS longitud_3d
+        FROM elementos e
+        LEFT JOIN capas c ON c.id = e.capa_id
+        WHERE e.geom_3d IS NOT NULL
+        ORDER BY e.id DESC
+        LIMIT $1
+        """,
+        limite,
+    )
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "id": f["id"],
+                "geometry": json.loads(f["geom"]),
+                "properties": {
+                    "id": f["id"],
+                    "nombre": f["nombre"],
+                    "capa_id": f["capa_id"],
+                    "autor": f["autor"],
+                    "color": f["color"],
+                    "longitud_3d_m": round(float(f["longitud_3d"] or 0), 2),
+                    **json.loads(f["propiedades"]),
+                },
+            }
+            for f in filas
+        ],
+    }
+
+
 @router.get("/features/{id_elemento}")
 async def detalle_feature(id_elemento: int):
     """Ficha completa de un elemento, con las medidas oficiales en 9377.
@@ -76,7 +129,11 @@ async def detalle_feature(id_elemento: int):
                v.longitud_m, v.area_m2, v.perimetro_m,
                ST_AsGeoJSON(ST_Transform(v.geom_9377, 4326)) AS geom,
                ARRAY[ST_XMin(v.geom_9377), ST_YMin(v.geom_9377),
-                     ST_XMax(v.geom_9377), ST_YMax(v.geom_9377)] AS caja_9377
+                     ST_XMax(v.geom_9377), ST_YMax(v.geom_9377)] AS caja_9377,
+               -- La longitud en planta de una grieta vertical es casi cero.
+               -- Cuando hay marca 3D, esta es la que vale.
+               (SELECT ST_3DLength(ST_Transform(e.geom_3d, 9377))
+                FROM elementos e WHERE e.id = v.id) AS longitud_3d
         FROM v_elementos_oficial_co v
         WHERE v.id = $1
         """,
@@ -97,6 +154,10 @@ async def detalle_feature(id_elemento: int):
             "longitud_m": float(fila["longitud_m"] or 0),
             "area_m2": float(fila["area_m2"] or 0),
             "perimetro_m": float(fila["perimetro_m"] or 0),
+            # None cuando el elemento no se dibujo sobre un modelo 3D, que es
+            # lo normal. La ficha solo la ensena si viene.
+            "longitud_3d_m": (float(fila["longitud_3d"])
+                              if fila["longitud_3d"] is not None else None),
         },
         "propiedades": json.loads(fila["propiedades"]),
         "geometria": json.loads(fila["geom"]),
@@ -109,15 +170,22 @@ async def crear_feature(elemento: ElementoEntrada, sesion: dict = Depends(requie
     # declarada como GEOMETRY(Geometry,4326), que rechaza geometrias 3D.
     fila = await db.pool().fetchrow(
         """
-        INSERT INTO elementos (nombre, capa_id, propiedades, geom, autor)
+        INSERT INTO elementos (nombre, capa_id, propiedades, geom, geom_3d, autor)
         VALUES ($1, $2, $3::jsonb,
-                ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)), $5)
+                ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)),
+                -- ST_Force3D y no a pelo: si a un vertice le faltase la Z, la
+                -- columna GeometryZ rechazaria la fila entera y se perderia
+                -- la anotacion. Mejor un cero que un 500 en campo.
+                CASE WHEN $5::text IS NULL THEN NULL
+                     ELSE ST_Force3D(ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)) END,
+                $6)
         RETURNING id, nombre, capa_id, autor, creado_en
         """,
         elemento.nombre,
         elemento.capa_id,
         json.dumps(elemento.propiedades),
         json.dumps(elemento.geometria),
+        json.dumps(elemento.geometria_3d) if elemento.geometria_3d is not None else None,
         sesion.get("autor"),
     )
     return dict(fila)
@@ -133,7 +201,10 @@ async def editar_feature(id_elemento: int, parche: ElementoParche):
           propiedades = COALESCE($4::jsonb, propiedades),
           geom        = COALESCE(
                           ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)),
-                          geom)
+                          geom),
+          geom_3d     = COALESCE(
+                          ST_Force3D(ST_SetSRID(ST_GeomFromGeoJSON($6), 4326)),
+                          geom_3d)
         WHERE id = $1
         RETURNING id, nombre, capa_id, actualizado_en
         """,
@@ -142,6 +213,7 @@ async def editar_feature(id_elemento: int, parche: ElementoParche):
         parche.capa_id,
         json.dumps(parche.propiedades) if parche.propiedades is not None else None,
         json.dumps(parche.geometria) if parche.geometria is not None else None,
+        json.dumps(parche.geometria_3d) if parche.geometria_3d is not None else None,
     )
     if fila is None:
         raise HTTPException(status_code=404, detail="Elemento no encontrado")

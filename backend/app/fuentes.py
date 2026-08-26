@@ -59,6 +59,9 @@ TEMAS = (
      "Epicentro, intensidad y activaciones internacionales."),
     ("catastro", "Catastro de referencia",
      "Predios, terrenos y construcciones. Base para ubicar un daño en un predio concreto."),
+    ("modelo", "Modelos 3D",
+     "Vuelos de dron sobre una estructura concreta. Se miran en perspectiva y se puede "
+     "marcar sobre ellos."),
 )
 
 
@@ -74,6 +77,7 @@ class Fuente:
       gdacs     un Feature suelto de la API de GDACS
       visitados API autenticada de la Alcaldia de Cali (Basic Auth + ventana)
       catastro  copia local en PostGIS -> teselas vectoriales propias
+      modelo3d  malla 3D propia en /datos -> 3D Tiles (ver modelos3d.py)
       enlace    no se integra; se muestra en el catalogo con el motivo
     """
     clave: str
@@ -900,6 +904,29 @@ CATALOGO: tuple[Fuente, ...] = (
         naturaleza="estatica",
         motivo="Es cartografía base sin datos de la emergencia, y el visor ya trae tres "
                "mapas base. Se puede añadir si el equipo prefiere la base del IGAC.",
+    ),
+
+    # -- Modelos 3D ---------------------------------------------------------
+    # No es una fuente externa: los archivos estan en /datos y los sirve la
+    # propia API. Vive en este catalogo porque es donde el equipo enciende y
+    # apaga capas, y tener los modelos en otro sitio seria una lista mas que
+    # aprenderse. Lo geometrico -donde se apoya, que encuadre tiene- esta en
+    # modelos3d.py, que es la unica fuente de verdad de eso.
+    Fuente(
+        clave="modelo-cristo-rey",
+        nombre="Cristo Rey · modelo 3D del vuelo",
+        organizacion="SIATA",
+        tema="modelo",
+        tipo="modelo3d",
+        url="",
+        color="#c77dff",
+        naturaleza="estatica",
+        # Por debajo de 16 el modelo son 545 m de lado en una pantalla de
+        # ciudad: una mancha parda que no dice nada y cuesta descargarse.
+        zoom_min=16,
+        nota="Vuelo de dron procesado en DJI Terra. Malla texturizada, no nube de puntos: "
+             "resolución de unos 2 cm. Cubre 545 × 478 m alrededor del monumento y solo "
+             "lo que vio la cámara, así que hay huecos bajo los aleros y la vegetación.",
     ),
 )
 

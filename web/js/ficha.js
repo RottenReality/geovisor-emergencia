@@ -55,6 +55,14 @@ function pintar(dato) {
     medidas.push(['Longitud', formatearLongitud(dato.medidas.longitud_m)]);
   }
 
+  // Marcado sobre un modelo 3D. La longitud en planta de una grieta vertical
+  // es casi cero, asi que la de verdad va aparte y dice de donde sale: si
+  // saliera sin mas, las dos cifras juntas pareceria que una esta mal.
+  const en3d = dato.medidas.longitud_3d_m;
+  if (Number.isFinite(en3d) && en3d > 0) {
+    medidas.push(['Longitud sobre el modelo', formatearLongitud(en3d)]);
+  }
+
   const extra = Object.entries(dato.propiedades).filter(([k]) => !YA_MOSTRADAS.has(k));
 
   $('ficha-cuerpo').innerHTML = `
