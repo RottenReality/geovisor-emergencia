@@ -5,32 +5,68 @@ import * as modelo3d from './modelo3d.js';
 import { $, numero } from './util.js';
 import { COLOMBIA } from './ciudades.js';
 
-// Teselas de 256 px sin @2x: pesan la mitad, y en campo el ancho de banda
-// importa mas que la nitidez.
-const carto = (estilo) => ['a', 'b', 'c'].map(
-  (s) => `https://${s}.basemaps.cartocdn.com/${estilo}/{z}/{x}/{y}.png`);
+/* Mapas base
+ * ----------
+ * Los dos primeros salian de CARTO hasta que CARTO empezo a exigir clave: las
+ * teselas seguian llegando con un 200 y con «API KEY REQUIRED» estampado
+ * encima, asi que no fallaba nada y el mapa se veia mal igualmente.
+ *
+ * En su lugar van los estilos de OpenFreeMap. Son VECTORIALES, no teselas de
+ * imagen, lo que ademas quita el techo de zoom: el texto y las calles salen
+ * nitidos a cualquier escala en vez de pixelarse. Y son los mismos disenos de
+ * antes -«positron» y «dark» son los originales abiertos de los que CARTO
+ * hacia sus light_all y dark_all-, asi que nadie tiene que reaprender a leer
+ * el mapa.
+ *
+ * Sin clave y sin cuota. La alternativa era pedirle una a CARTO y meterla en
+ * el .env, con lo que el visor se rompe el dia que caduque o se pase de
+ * volumen, que en una emergencia es exactamente cuando pasaria.
+ *
+ * Los dos estilos comparten fuente de datos, tipografias y sprite, y por eso
+ * caben en un mismo estilo sin pisarse: se anaden las capas de los dos con
+ * prefijo y se enciende el grupo que toque. Se mezclan en vez de cambiar el
+ * estilo entero con setStyle porque eso tiraria todas las capas que el equipo
+ * tenga puestas y habria que rehacerlas a mano.
+ */
+const OPENFREEMAP = {
+  claro: 'https://tiles.openfreemap.org/styles/positron',
+  oscuro: 'https://tiles.openfreemap.org/styles/dark',
+};
+const ATRIBUCION_OFM = '© OpenFreeMap · © OpenMapTiles · © OpenStreetMap';
 
+// Callejero de reserva. Es de imagen y no pasa del zoom 19, pero no pide
+// clave y viene del mismo sitio que el satelite. Existe para que un
+// OpenFreeMap caido no deje el visor sin mapa base en mitad de una
+// emergencia: en ese caso pasa a ser el «Claro».
+const CALLES_RESERVA =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+
+/** Que capas del estilo enciende cada boton. Las vectoriales se rellenan
+ *  al preparar, porque hay que ir a buscarlas. */
 const BASES = {
-  claro:    { fuente: 'base-claro',    etiqueta: 'Claro' },
-  oscuro:   { fuente: 'base-oscuro',   etiqueta: 'Oscuro' },
-  satelite: { fuente: 'base-satelite', etiqueta: 'Satélite' },
+  claro:    { etiqueta: 'Claro',    capas: [] },
+  oscuro:   { etiqueta: 'Oscuro',   capas: [] },
+  satelite: { etiqueta: 'Satélite', capas: ['base-satelite'] },
 };
 
 const estilo = {
   version: 8,
+  // Van en el estilo desde el principio aunque las capas que los usan lleguen
+  // despues: MapLibre solo los pide cuando tiene que dibujar una etiqueta, y
+  // ponerlos mas tarde obligaria a recargar el estilo entero.
+  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  sprite: 'https://tiles.openfreemap.org/sprites/ofm_f384/ofm',
   sources: {
-    claro:  { type: 'raster', tiles: carto('light_all'), tileSize: 256,
-              attribution: '© OpenStreetMap · © CARTO' },
-    oscuro: { type: 'raster', tiles: carto('dark_all'), tileSize: 256,
-              attribution: '© OpenStreetMap · © CARTO' },
     satelite: { type: 'raster', tileSize: 256,
       tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
       attribution: 'Esri · Maxar · Earthstar Geographics' },
+    calles: { type: 'raster', tileSize: 256, maxzoom: 19,
+      tiles: [CALLES_RESERVA],
+      attribution: 'Esri · HERE · Garmin · © OpenStreetMap' },
   },
   layers: [
     { id: 'fondo', type: 'background', paint: { 'background-color': '#0e1319' } },
-    { id: 'base-claro', type: 'raster', source: 'claro' },
-    { id: 'base-oscuro', type: 'raster', source: 'oscuro', layout: { visibility: 'none' } },
+    { id: 'base-calles', type: 'raster', source: 'calles', layout: { visibility: 'none' } },
     { id: 'base-satelite', type: 'raster', source: 'satelite', layout: { visibility: 'none' } },
   ],
 };
@@ -559,8 +595,12 @@ export function refrescarDatos() {
 }
 
 export function cambiarBase(cual) {
+  if (!BASES[cual]) return;
   for (const [clave, base] of Object.entries(BASES)) {
-    mapa.setLayoutProperty(base.fuente, 'visibility', clave === cual ? 'visible' : 'none');
+    const como = clave === cual ? 'visible' : 'none';
+    for (const id of base.capas) {
+      if (mapa.getLayer(id)) mapa.setLayoutProperty(id, 'visibility', como);
+    }
     const boton = $(`base-${clave}`);
     if (boton) boton.setAttribute('aria-pressed', String(clave === cual));
   }
@@ -569,6 +609,66 @@ export function cambiarBase(cual) {
 
 export function baseGuardada() {
   return localStorage.getItem('geovisor.base') || 'claro';
+}
+
+/**
+ * Mete los mapas base vectoriales dentro del estilo que ya esta cargado.
+ *
+ * No se espera a que termine para arrancar el visor: son dos peticiones a un
+ * servidor de fuera y nada del arranque depende de ellas. Cuando llegan, se
+ * vuelve a aplicar el mapa base elegido y aparecen solas.
+ */
+export async function prepararBases() {
+  // Las capas de datos se anaden despues del arranque y tienen que quedar POR
+  // ENCIMA del mapa base. Se inserta antes de la primera que no sea de base;
+  // si todavia no hay ninguna, al final, que en ese momento es lo mismo.
+  const tope = () => {
+    const capas = mapa.getStyle().layers || [];
+    const primera = capas.find((c) => c.id !== 'fondo'
+      && !c.id.startsWith('base-') && !c.id.startsWith('ofm-'));
+    return primera ? primera.id : undefined;
+  };
+
+  for (const [clave, url] of Object.entries(OPENFREEMAP)) {
+    try {
+      const respuesta = await fetch(url);
+      if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+      const suyo = await respuesta.json();
+
+      // Los dos estilos comparten las fuentes: se anaden una sola vez.
+      for (const [id, fuente] of Object.entries(suyo.sources || {})) {
+        const idFuente = `ofm-${id}`;
+        if (!mapa.getSource(idFuente)) {
+          mapa.addSource(idFuente, { ...fuente, attribution: ATRIBUCION_OFM });
+        }
+      }
+      const antes = tope();
+      for (const capa of suyo.layers || []) {
+        // El prefijo es obligatorio: los dos estilos traen una capa llamada
+        // 'background', otra 'water'... y sin renombrar se pisarian.
+        const nueva = { ...capa, id: `ofm-${clave}-${capa.id}` };
+        if (nueva.source) nueva.source = `ofm-${nueva.source}`;
+        nueva.layout = { ...(nueva.layout || {}), visibility: 'none' };
+        mapa.addLayer(nueva, antes);
+        BASES[clave].capas.push(nueva.id);
+      }
+    } catch (error) {
+      console.warn(`No se pudo cargar el mapa base ${clave}:`, error.message);
+    }
+  }
+
+  // Reserva. Sin el claro vectorial, el callejero de imagen ocupa su sitio.
+  // Para el oscuro no hay reserva sin clave, asi que su boton se apaga: mejor
+  // eso que un boton que no hace nada y parece averiado.
+  if (!BASES.claro.capas.length) BASES.claro.capas.push('base-calles');
+  const botonOscuro = $('base-oscuro');
+  if (botonOscuro && !BASES.oscuro.capas.length) {
+    botonOscuro.disabled = true;
+    botonOscuro.title = 'El mapa base oscuro no se pudo cargar.';
+  }
+
+  const elegido = baseGuardada();
+  cambiarBase(BASES[elegido] && BASES[elegido].capas.length ? elegido : 'claro');
 }
 
 export function irA(lugar) {

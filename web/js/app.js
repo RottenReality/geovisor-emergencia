@@ -3,7 +3,7 @@
 import { api, avisar, escapar, descargarArchivo, numero, $ } from './util.js';
 import {
   mapa, inicializarFuentes, capasConsultables, refrescarDatos, refrescarExternas,
-  cambiarBase, baseGuardada, irA, seguirCursor,
+  cambiarBase, baseGuardada, prepararBases, irA, seguirCursor,
 } from './mapa.js';
 import * as capas from './capas.js';
 import * as dibujo from './dibujo.js';
@@ -24,6 +24,9 @@ import { a9377 } from './proyeccion.js';
 mapa.on('load', async () => {
   inicializarFuentes();
   cambiarBase(baseGuardada());
+  // Los mapas base claros son vectoriales y hay que ir a buscarlos. NO se
+  // espera aqui: el visor arranca igual y ellos aparecen cuando llegan.
+  prepararBases();
   seguirCursor();
   dibujo.inicializar();
   comparar.inicializar();
