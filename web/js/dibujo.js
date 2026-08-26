@@ -6,7 +6,8 @@
  * que se pueda romper en el peor momento.
  */
 
-import { api, avisar, longitudDe, areaDe, formatearArea, formatearLongitud, escapar, $ } from './util.js';
+import { api, avisar, longitudDe, longitud3dDe, areaDe, formatearArea,
+         formatearLongitud, escapar, $ } from './util.js';
 import { mapa, coleccionVacia, refrescarDatos } from './mapa.js';
 import { capasVectoriales, asegurarVisible } from './capas.js';
 import * as modelo3d from './modelo3d.js';
@@ -253,9 +254,30 @@ function actualizarMedicion() {
 
   const puntos = posicionCursor ? [...vertices, posicionCursor] : vertices;
   const esPoligono = modo === 'poligono' && puntos.length >= 3;
+  const cerrar = (lista) => (esPoligono ? [...lista, lista[0]] : lista);
 
-  $('med-longitud').textContent = formatearLongitud(
-    longitudDe(esPoligono ? [...puntos, puntos[0]] : puntos));
+  // Sobre un modelo se mide en tres dimensiones, que es la unica medida que
+  // significa algo ahi: una grieta que baja por una fachada mide casi cero en
+  // planta. Se dice en el rotulo para que nadie compare esta cifra con la de
+  // una capa plana creyendo que son lo mismo.
+  const conAltura = vertices3d();
+  const en3d = conAltura.length === vertices.length && conAltura.length >= 2;
+
+  if (en3d) {
+    const puntos3d = posicionCursor && Number.isFinite(alturaCursor)
+      ? [...conAltura, [posicionCursor[0], posicionCursor[1], alturaCursor]]
+      : conAltura;
+    $('med-rotulo-longitud').textContent = 'Longitud 3D';
+    $('med-longitud').textContent = formatearLongitud(longitud3dDe(cerrar(puntos3d)));
+  } else {
+    $('med-rotulo-longitud').textContent = 'Longitud';
+    $('med-longitud').textContent = formatearLongitud(longitudDe(cerrar(puntos)));
+  }
+
+  // El area sigue siendo la de la sombra en planta. Un poligono pegado a una
+  // ladera tiene mas superficie real que su proyeccion, pero calcular eso
+  // sobre una malla no es medir sino estimar, y una cifra estimada sin decirlo
+  // en un informe de danos es peor que no darla.
   $('med-area').textContent = formatearArea(esPoligono ? areaDe(puntos) : 0);
   $('med-vertices').textContent = String(vertices.length);
   panel.classList.add('visible');

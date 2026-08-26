@@ -79,6 +79,29 @@ class Modelo:
     # parda sin textura- y la primera impresion es que esta roto. A 18 el
     # vuelo llena la pantalla y ya se distinguen los techos.
     zoom_llegada: float = 18.0
+    # Cuanto detalle se pide para lo que se ve de lejos.
+    #
+    # Va a parar a `viewDistanceScale` de la libreria, que multiplica la
+    # distancia aparente al elegir el nivel: mas alto, mas detalle. Con 1 -lo
+    # de serie- mirar el monumento entero desde arriba traia TRES teselas y se
+    # veia una mancha parda; con 3, veintisiete, y se distinguen los senderos
+    # y los arboles. Medido a zoom 17: 3,1 MB contra 6,8 MB de descarga.
+    #
+    # Se para en 3 y no en 6 porque de ahi para arriba ya casi no cambia lo
+    # que se ve de lejos y en cambio dispara el coste de cerca: a zoom 19,
+    # 16,5 MB contra 30,9.
+    #
+    # Y NO se toca `maximumScreenSpaceError`, que seria el mando canonico:
+    # deck.gl no lo reenvia a su recorrido del arbol. Comprobado barriendo de
+    # 16 a 1 sin que cambiara una sola tesela.
+    detalle: float = 3.0
+    # Techo de memoria de video, en MB.
+    #
+    # La libreria trae 32 y por encima de eso NO deja de cargar: rebaja la
+    # calidad a proposito para caber. De cerca se pasaba de largo -78 MB
+    # medidos a zoom 19- asi que estaba degradando justo cuando mas detalle
+    # hace falta, y eso es parte de por que «hay que acercarse mucho».
+    memoria_mb: int = 128
 
 
 MODELOS: tuple[Modelo, ...] = (
@@ -92,6 +115,8 @@ MODELOS: tuple[Modelo, ...] = (
         caja=(-76.566948, 3.433575, -76.562047, 3.437902),
         resolucion_cm=2.0,
         zoom_llegada=18.0,
+        detalle=3.0,
+        memoria_mb=128,
     ),
 )
 

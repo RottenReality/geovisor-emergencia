@@ -33,7 +33,7 @@
  */
 
 import { api, avisar } from './util.js';
-import { mapa } from './mapa.js';
+import { mapa, cambiarBase, baseGuardada } from './mapa.js';
 
 const VENDOR = '/vendor';
 
@@ -51,6 +51,14 @@ let borrador = null;
 
 // Estado del mapa antes de encender el primer modelo, para devolverlo.
 let camaraPrevia = null;
+let basePrevia = null;
+
+// Mapa base bajo un modelo 3D. Es una decision de aspecto, no de gusto: el
+// modelo es una fotografia aerea con relieve, y dejarlo sobre un callejero
+// plano lo hace parecer un recorte pegado encima. Sobre ortoimagen, el borde
+// del vuelo se funde con lo que hay alrededor y se lee como lo que es, un
+// trozo de terreno mejor levantado que el resto.
+const BASE_PARA_3D = 'satelite';
 
 const COLOR_BORRADOR = [255, 209, 102];
 const COLOR_VERTICE = [255, 255, 255];
@@ -108,6 +116,13 @@ function permitirVista3D() {
   camaraPrevia = { pitch: mapa.getPitch(), bearing: mapa.getBearing() };
   mapa.dragRotate.enable();
   mapa.touchZoomRotate.enableRotation();
+
+  basePrevia = baseGuardada();
+  if (basePrevia !== BASE_PARA_3D) {
+    cambiarBase(BASE_PARA_3D);
+    avisar('Se cambió a Satélite mientras miras el modelo 3D. '
+           + 'Puedes elegir otro mapa base cuando quieras.');
+  }
 }
 
 function devolverVista2D() {
@@ -116,6 +131,14 @@ function devolverVista2D() {
   mapa.touchZoomRotate.disableRotation();
   mapa.easeTo({ pitch: camaraPrevia.pitch, bearing: camaraPrevia.bearing, duration: 400 });
   camaraPrevia = null;
+
+  // Solo se devuelve si nadie lo toco a mano por el camino: cambiar de mapa
+  // base es una eleccion de quien mira, y deshacersela al apagar una capa
+  // seria quitarle el mando.
+  if (basePrevia && basePrevia !== BASE_PARA_3D && baseGuardada() === BASE_PARA_3D) {
+    cambiarBase(basePrevia);
+  }
+  basePrevia = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +155,20 @@ function capaDelModelo(clave, estado) {
     pickable: true,
     // Sin esto la malla se dibuja sombreada por deck y las texturas del vuelo
     // salen apagadas. El material ya viene marcado como 'unlit' en el glTF.
-    onTilesetLoad: (conjunto) => { estado.conjunto = conjunto; },
+    onTilesetLoad: (conjunto) => {
+      estado.conjunto = conjunto;
+      // Estas dos NO se pueden pasar como propiedades de la capa: deck.gl no
+      // las reenvia al recorrido del arbol. Se ponen sobre el conjunto ya
+      // construido, que es donde las lee. Ver modelos3d.py para el porque de
+      // cada numero.
+      const ajustes = item.fuente.modelo || {};
+      if (Number.isFinite(ajustes.detalle)) {
+        conjunto.options.viewDistanceScale = ajustes.detalle;
+      }
+      if (Number.isFinite(ajustes.memoria_mb)) {
+        conjunto.options.maximumMemoryUsage = ajustes.memoria_mb;
+      }
+    },
     onTileError: (tesela, error) => {
       // Una tesela suelta que falla no es noticia; que fallen todas si.
       estado.fallos = (estado.fallos || 0) + 1;

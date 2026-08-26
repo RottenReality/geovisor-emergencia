@@ -81,8 +81,44 @@ export const numero = (valor, decimales = 1) =>
     maximumFractionDigits: decimales,
   });
 
-export const formatearLongitud = (m) =>
-  m < 1000 ? `${numero(m, 0)} m` : `${numero(m / 1000, 2)} km`;
+/**
+ * Longitud legible.
+ *
+ * Los tramos cortos llevan decimales y por debajo del metro se pasa a
+ * centimetros. Antes cualquier cosa menor de medio metro salia como «0 m»,
+ * que es exactamente lo que hace falta leer al medir el ancho de una grieta
+ * sobre el modelo 3D. Por encima de diez metros se vuelve a numeros redondos:
+ * ahi el centimetro es precision falsa.
+ */
+export const formatearLongitud = (m) => {
+  if (!Number.isFinite(m)) return '—';
+  if (m < 1) return `${numero(m * 100, 0)} cm`;
+  if (m < 10) return `${numero(m, 2)} m`;
+  if (m < 1000) return `${numero(m, 0)} m`;
+  return `${numero(m / 1000, 2)} km`;
+};
+
+/**
+ * Distancia entre dos puntos con altura, en metros.
+ *
+ * Se compone la horizontal con el desnivel. Para los tramos de los que se
+ * habla aqui -metros, no kilometros- tratar el par como un triangulo recto es
+ * exacto de sobra, y es lo que hace falta: una grieta que baja por una
+ * fachada mide casi cero en planta y su longitud entera es el desnivel.
+ */
+export function distancia3d(a, b) {
+  const plano = distancia(a, b);
+  const desnivel = (b[2] || 0) - (a[2] || 0);
+  return Math.hypot(plano, desnivel);
+}
+
+export function longitud3dDe(coordenadas) {
+  let total = 0;
+  for (let i = 1; i < coordenadas.length; i++) {
+    total += distancia3d(coordenadas[i - 1], coordenadas[i]);
+  }
+  return total;
+}
 
 export const formatearArea = (m2) =>
   m2 < 10000 ? `${numero(m2, 0)} m²` : `${numero(m2 / 10000, 2)} ha`;
