@@ -112,13 +112,15 @@ class Modelo:
     # carga muy bien»: no le faltaba descarga, le sobraba recorte.
     #
     # Probado en la misma vista -zoom 18, camara inclinada- dejando correr un
-    # minuto: con 128 y con 256 salen las manchas; con 384 y con 512, no. La
-    # malla que de verdad se usa en esa vista son 63 MB, asi que subir el
-    # techo no sube el gasto: solo evita que empiece a tirar antes de tiempo.
+    # minuto: con 128 y con 256 salen las manchas y no se van ni esperando
+    # dos minutos y medio, que es lo que descarta que sea lentitud. Con 512
+    # no salen. La malla que de verdad se usa en esa vista son 63 MB, asi que
+    # subir el techo no sube el gasto: solo evita que la libreria empiece a
+    # tirar texturas antes de tiempo.
     #
     # La libreria trae 32 de serie, que para un vuelo de 628 MB no da ni para
     # la primera pantalla.
-    memoria_mb: int = 384
+    memoria_mb: int = 512
 
 
 MODELOS: tuple[Modelo, ...] = (
@@ -133,7 +135,7 @@ MODELOS: tuple[Modelo, ...] = (
         resolucion_cm=2.0,
         zoom_llegada=18.0,
         detalle=3.0,
-        memoria_mb=384,
+        memoria_mb=512,
     ),
 )
 
