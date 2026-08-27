@@ -18,11 +18,17 @@
  * Por que todo vendorizado
  * ------------------------
  * deck.gl descarga por su cuenta el descompresor Draco de gstatic.com y sus
- * workers de unpkg.com. Las mallas de Terra van comprimidas con Draco, asi
- * que sin esos archivos no se dibuja NADA. Depender de dos CDN ajenos para
- * mirar un modelo en una emergencia es exactamente el fallo que no se puede
- * permitir, y ademas el visor no carga nada de fuera por politica. Estan en
- * /vendor/draco y se le dice a la libreria que los busque ahi.
+ * workers de unpkg.com. Las mallas de Terra van comprimidas con Draco -lo
+ * declaran como extension REQUERIDA-, asi que sin esos archivos no se dibuja
+ * NADA. Depender de dos CDN ajenas para mirar un modelo en una emergencia es
+ * exactamente el fallo que no se puede permitir, y ademas el visor no carga
+ * nada de fuera por politica. Estan en /vendor/draco.
+ *
+ * El worker propio si se le puede indicar. El descompresor NO: la URL de
+ * gstatic esta quemada dentro del worker y ninguna opcion la cambia, porque
+ * el propio worker pisa `options.modules` antes de resolverla. Por eso hay
+ * una envoltura -draco-worker-local.js- que redirige esas dos peticiones a
+ * /vendor/draco. Lo explica ese archivo.
  *
  * El dibujo va aqui y no en MapLibre
  * ----------------------------------
@@ -88,16 +94,19 @@ function cargarLibreria() {
 }
 
 /**
- * Donde buscar el descompresor Draco y su worker.
+ * Donde buscar el worker que descomprime las mallas.
  *
- * Sin esto la libreria los pide a gstatic.com y a unpkg.com. `libraryPath`
- * termina en barra a proposito: la libreria le concatena el nombre del
- * archivo sin anadir separador.
+ * Se apunta a la envoltura y no al worker de la libreria: es la envoltura la
+ * que hace que el descompresor salga de /vendor/draco y no de gstatic.com.
+ *
+ * Aqui estuvo `libraryPath`, que no existe en esta version de la libreria y
+ * por tanto no hacia nada: el descompresor se bajaba de Google en cada
+ * navegador que abriera el modelo. Comprobado con la red de fuera cortada:
+ * con `libraryPath` no se dibujaba una sola tesela; con la envoltura, todas.
  */
 const OPCIONES_CARGA = {
   draco: {
-    workerUrl: `${VENDOR}/draco/draco-worker.js`,
-    libraryPath: `${VENDOR}/draco/`,
+    workerUrl: `${VENDOR}/draco/draco-worker-local.js`,
     decoderType: 'wasm',
   },
 };
@@ -162,16 +171,23 @@ function capaDelModelo(clave, estado) {
     pickable: true,
     onTilesetLoad: (conjunto) => {
       estado.conjunto = conjunto;
-      // Estas dos NO se pueden pasar como propiedades de la capa: deck.gl no
-      // las reenvia al recorrido del arbol. Se ponen sobre el conjunto ya
-      // construido, que es donde las lee. Ver modelos3d.py para el porque de
-      // cada numero.
+      // Ninguna de las dos se puede pasar como propiedad de la capa: deck.gl
+      // no las reenvia al recorrido del arbol. Se ponen sobre el conjunto ya
+      // construido. Ver modelos3d.py para el porque de cada numero.
       const ajustes = item.fuente.modelo || {};
       if (Number.isFinite(ajustes.detalle)) {
+        // Esta si vive en `options`: el calculo del nivel la lee de ahi en
+        // cada recorrido.
         conjunto.options.viewDistanceScale = ajustes.detalle;
       }
       if (Number.isFinite(ajustes.memoria_mb)) {
-        conjunto.options.maximumMemoryUsage = ajustes.memoria_mb;
+        // Y esta NO. El presupuesto de cache es un campo del objeto, no una
+        // opcion: la libreria lo declara como `maximumMemoryUsage = 32` y
+        // nunca lo copia desde `options`, de modo que ponerlo en `options`
+        // -como estaba- no hacia absolutamente nada y la cache se quedaba en
+        // los 32 MB de fabrica. De ahi venian las manchas lisas de la ladera.
+        // Es el campo lo que se lee al decidir que soltar.
+        conjunto.maximumMemoryUsage = ajustes.memoria_mb;
       }
     },
     onTileError: (tesela, error) => {

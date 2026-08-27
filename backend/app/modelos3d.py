@@ -85,41 +85,58 @@ class Modelo:
     # distancia aparente al elegir el nivel: mas alto, mas detalle. Con 1 -lo
     # de serie- mirar el monumento entero desde arriba traia TRES teselas y se
     # veia una mancha parda; con 3, veintisiete, y se distinguen los senderos
-    # y los arboles. Medido a zoom 17: 3,1 MB contra 6,8 MB de descarga.
+    # y los arboles.
     #
-    # Estuvo en 5 un dia y se volvio a 3 porque el equipo dijo que asi «no
-    # carga muy bien». Lo medido, desde zoom 16 e inclinado:
+    # Estuvo en 5, se bajo a 3 porque el equipo dijo que asi «no carga muy
+    # bien», y vuelve a 5 ahora que se sabe que aquello no era el detalle sino
+    # la cache rota (ver `memoria_mb`). Vuelto a medir con la cache ya
+    # arreglada, mismo recorrido de camara, ventana de 1.280 x 800:
     #
-    #     detalle 3 ->  9,1 MB de descarga,   8 MB de video
-    #     detalle 5 -> 12,7 MB,              22 MB
-    #     detalle 8 -> 16,9 MB,              45 MB   (y encima se ve peor:
-    #                  no da tiempo a texturar y sale un bulto liso)
+    #     detalle 3 ->  96 teselas,  84 MB de malla
+    #     detalle 5 -> 139 teselas, 161 MB   <- se distinguen los coches
+    #     detalle 8 -> 202 teselas, 282 MB
     #
-    # De lejos se gana nitidez subiendolo, pero de cerca el coste se dispara
-    # -a zoom 19, 53,8 MB contra 36,7- y eso es lo que se noto. Si alguna vez
-    # se quiere probar otra vez, es este numero y nada mas.
+    # Con 5 la diferencia se ve: las barandas dejan de ser una linea sucia y
+    # los coches del parqueadero se cuentan. Con 8 se gana poco mas y se roza
+    # el techo de cache, con lo que volveria a soltar teselas.
     #
-    # Y NO se toca `maximumScreenSpaceError`, que seria el mando canonico:
-    # deck.gl no lo reenvia a su recorrido del arbol. Comprobado barriendo de
-    # 16 a 1 sin que cambiara una sola tesela.
-    detalle: float = 3.0
+    # Y NO se toca `maximumScreenSpaceError` desde `options`: la libreria lo
+    # copia UNA vez al construirse, en el campo `memoryAdjustedScreenSpaceError`,
+    # y despues lee el campo. Cambiar la opcion no mueve nada -de ahi el
+    # barrido de 16 a 1 sin que cambiara una sola tesela-. `viewDistanceScale`
+    # si se lee en cada recorrido, y hace exactamente lo mismo.
+    detalle: float = 5.0
     # Presupuesto de cache de la malla, en MB.
     #
     # No es cuanta memoria se gasta sino a partir de cuanta la libreria
-    # empieza a soltar teselas. La de serie son 32, y con eso se pasaba de
-    # largo enseguida: medido a zoom 19, la malla en uso llega a 193 MB, o
-    # sea que la libreria estaba rebajando la calidad a proposito para caber
-    # justo cuando mas detalle hace falta.
+    # empieza a soltar teselas. Nunca suelta las que se estan viendo: suelta
+    # las que se acaban de dejar de ver, que son justo las que vuelven a
+    # hacer falta al girar.
     #
-    # 256 deja margen sobre ese pico sin reservar de mas: lo que de verdad se
-    # usa en una vista normal son unos 63 MB.
+    # AQUI ESTABAN LAS MANCHAS. Este numero llevaba desde el principio sin
+    # llegar a la libreria: el navegador lo ponia en `options`, y el objeto
+    # declara `maximumMemoryUsage = 32` como campo propio y no lo copia nunca
+    # desde ahi. O sea que 128, 256, 384 y 512 eran todos 32, y por eso
+    # ninguno cambio nada. Corregido en modelo3d.js.
     #
-    # OJO, para el que venga detras: esto NO arregla las manchas lisas de
-    # color salmon que a veces salen sobre la ladera. Se probo -128, 256, 384
-    # y 512- y con 512 seguian apareciendo en la VPS. Tampoco es el servidor:
-    # las teselas llegan identicas byte a byte, comprobado con md5. Queda sin
-    # explicar.
-    memoria_mb: int = 256
+    # Con 32 MB de verdad, la malla que se esta viendo ya pesa el doble o el
+    # triple, asi que la libreria soltaba TODO lo que no estuviera en pantalla
+    # en ese fotograma. Al girar, esas teselas volvian a hacer falta, no habian
+    # llegado todavia, y mientras tanto se dibujaba en su lugar el nivel basto
+    # del que cuelgan: una mancha lisa color salmon sobre la ladera.
+    #
+    # Medido con el mismo recorrido de camara -llegar, dar la vuelta, acercar
+    # a zoom 19, alejar y volver-, ventana de 1.600 x 900 y detalle 5:
+    #
+    #     32 MB (lo que corria) -> 238 teselas descargadas, 166 soltadas
+    #     384 MB                -> 146 descargadas, 0 soltadas
+    #
+    # O sea que descargaba MAS y ensenaba PEOR: se pasaba el rato volviendo a
+    # pedir lo que acababa de tirar. Con 384 no suelta nada en ese recorrido
+    # -la malla se queda en 168 MB- ni tampoco mirando una grieta a zoom 21 en
+    # pantalla de 1.920, que es el peor caso probado y llega a 340 MB. Y sigue
+    # siendo un techo, no una reserva.
+    memoria_mb: int = 384
 
 
 MODELOS: tuple[Modelo, ...] = (
@@ -133,8 +150,8 @@ MODELOS: tuple[Modelo, ...] = (
         caja=(-76.566948, 3.433575, -76.562047, 3.437902),
         resolucion_cm=2.0,
         zoom_llegada=18.0,
-        detalle=3.0,
-        memoria_mb=256,
+        detalle=5.0,
+        memoria_mb=384,
     ),
 )
 
