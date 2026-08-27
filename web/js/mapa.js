@@ -47,6 +47,12 @@ const BASES = {
   claro:    { etiqueta: 'Claro',    capas: [] },
   oscuro:   { etiqueta: 'Oscuro',   capas: [] },
   satelite: { etiqueta: 'Satélite', capas: ['base-satelite'] },
+  // Sin capas de MapLibre a proposito: elegirlo apaga el mapa base y deja el
+  // modelo 3D solo. Cualquier mapa base se dibuja a UNA altura, la del plano
+  // del mapa, y el vuelo baja 143 m por debajo de la explanada: mirando de
+  // lado, ese plano cruza la ladera. Esto lo quita. Solo aparece mientras hay
+  // un modelo encendido; sin el, dejaria el visor en negro.
+  sinfondo: { etiqueta: 'Sin fondo', capas: [], solo3D: true },
 };
 
 const estilo = {
@@ -600,8 +606,14 @@ export function refrescarDatos() {
   if (fuente) fuente.setTiles([`${location.origin}/api/tiles/{z}/{x}/{y}.pbf?v=${Date.now()}`]);
 }
 
+/** Mapa base puesto ahora mismo, que puede ser uno que no se guarda. */
+let baseActual = 'claro';
+
+export const baseActiva = () => baseActual;
+
 export function cambiarBase(cual) {
   if (!BASES[cual]) return;
+  baseActual = cual;
   for (const [clave, base] of Object.entries(BASES)) {
     const como = clave === cual ? 'visible' : 'none';
     for (const id of base.capas) {
@@ -610,7 +622,21 @@ export function cambiarBase(cual) {
     const boton = $(`base-${clave}`);
     if (boton) boton.setAttribute('aria-pressed', String(clave === cual));
   }
-  localStorage.setItem('geovisor.base', cual);
+  // «Sin fondo» NO se guarda: es una forma de mirar un modelo 3D, no una
+  // preferencia. Guardarlo dejaria el visor arrancando en negro al dia
+  // siguiente, cuando ya no hay ningun modelo encendido que mirar.
+  if (cual !== 'sinfondo') localStorage.setItem('geovisor.base', cual);
+}
+
+/**
+ * Ensena o esconde el boton «Sin fondo».
+ *
+ * Va con el modelo 3D, como la brujula: sin modelo, un boton que deja el
+ * mapa en negro parece averiado.
+ */
+export function mostrarBaseSinFondo(mostrar) {
+  const boton = $('base-sinfondo');
+  if (boton) boton.hidden = !mostrar;
 }
 
 /**
@@ -709,8 +735,16 @@ export async function prepararBases() {
     botonOscuro.title = 'El mapa base oscuro no se pudo cargar.';
   }
 
-  const elegido = baseGuardada();
-  cambiarBase(BASES[elegido] && BASES[elegido].capas.length ? elegido : 'claro');
+  // Se vuelve a aplicar el que este puesto AHORA, no el guardado. Los dos
+  // estilos son dos peticiones a un servidor de fuera y tardan lo suyo, y
+  // para cuando llegan puede que ya se haya elegido otro mapa base: encender
+  // un modelo 3D pone Satelite, y quien mira puede haber pulsado otra cosa.
+  // Releer el guardado le devolvia el fondo de debajo de los pies. Medido en
+  // el banco: el modelo acababa sobre el CALLEJERO, que es de lo que se
+  // quejaba el equipo -«queda debajo de una capa 2D flotante»-.
+  const actual = baseActiva();
+  const sirve = BASES[actual] && (BASES[actual].capas.length || BASES[actual].solo3D);
+  cambiarBase(sirve ? actual : 'claro');
 }
 
 export function irA(lugar) {

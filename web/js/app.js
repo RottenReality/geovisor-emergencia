@@ -184,7 +184,10 @@ $('ir-a-quitar').onclick = () => { quitarMarcador(); anotar(''); };
 // ---------------------------------------------------------------------------
 // Mapas base
 // ---------------------------------------------------------------------------
-for (const clave of ['claro', 'oscuro', 'satelite']) {
+// «sinfondo» esta en la lista aunque su boton salga oculto: aparece solo
+// mientras hay un modelo 3D encendido, y para entonces ya tiene que estar
+// cableado. Lo ensena y lo esconde modelo3d.js.
+for (const clave of ['claro', 'oscuro', 'satelite', 'sinfondo']) {
   $(`base-${clave}`).onclick = () => cambiarBase(clave);
 }
 

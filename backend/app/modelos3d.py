@@ -87,25 +87,34 @@ class Modelo:
     # veia una mancha parda; con 3, veintisiete, y se distinguen los senderos
     # y los arboles.
     #
-    # Estuvo en 5, se bajo a 3 porque el equipo dijo que asi «no carga muy
-    # bien», y vuelve a 5 ahora que se sabe que aquello no era el detalle sino
-    # la cache rota (ver `memoria_mb`). Vuelto a medir con la cache ya
-    # arreglada, mismo recorrido de camara, ventana de 1.280 x 800:
+    # Estuvo en 5 dos veces y las dos hubo que bajarlo. Lo que decide es
+    # cuanto pesa mirar una vez, y a este vuelo le pesa mucho: medido en el
+    # visor de verdad, quieto a zoom 19 en ventana de 1.400 x 850 y esperando
+    # a que no quede nada por cargar,
     #
-    #     detalle 3 ->  96 teselas,  84 MB de malla
-    #     detalle 5 -> 139 teselas, 161 MB   <- se distinguen los coches
-    #     detalle 8 -> 202 teselas, 282 MB
+    #     detalle 3 -> 198 teselas,  50 MB de descarga, 185 MB en la tarjeta
+    #     detalle 4 -> 244 teselas,  63 MB,             260 MB
+    #     detalle 5 -> 296 teselas,  76 MB,             363 MB
     #
-    # Con 5 la diferencia se ve: las barandas dejan de ser una linea sucia y
-    # los coches del parqueadero se cuentan. Con 8 se gana poco mas y se roza
-    # el techo de cache, con lo que volveria a soltar teselas.
+    # Con el enlace del equipo medido en el log -unos 3,6 MB/s- eso son 14 s
+    # contra 21 s de espera hasta ver el vuelo nitido, cada vez que alguien se
+    # mueve. Se elige 3: la diferencia de nitidez frente a 5 se ve en una
+    # captura al lado de la otra, pero no compensa esperar la mitad mas.
+    #
+    # OJO con como se prueba esto: el banco corre con el renderizador por
+    # SOFTWARE de Chrome, que se queda sin memoria de texturas alrededor de
+    # los 200 MB y entonces dibuja la malla de un salmon liso -parecido a lo
+    # que el equipo llama «faltan trozos», pero por otro motivo-. Con GPU de
+    # verdad, las tres se ven bien. O sea que ese techo es el suelo de lo que
+    # aguanta cualquier maquina, no una medida de las del equipo: no sirve
+    # para elegir el numero, solo para saber que con 3 se ve hasta sin GPU.
     #
     # Y NO se toca `maximumScreenSpaceError` desde `options`: la libreria lo
     # copia UNA vez al construirse, en el campo `memoryAdjustedScreenSpaceError`,
     # y despues lee el campo. Cambiar la opcion no mueve nada -de ahi el
     # barrido de 16 a 1 sin que cambiara una sola tesela-. `viewDistanceScale`
     # si se lee en cada recorrido, y hace exactamente lo mismo.
-    detalle: float = 5.0
+    detalle: float = 3.0
     # Presupuesto de cache de la malla, en MB.
     #
     # No es cuanta memoria se gasta sino a partir de cuanta la libreria
@@ -132,11 +141,13 @@ class Modelo:
     #     384 MB                -> 146 descargadas, 0 soltadas
     #
     # O sea que descargaba MAS y ensenaba PEOR: se pasaba el rato volviendo a
-    # pedir lo que acababa de tirar. Con 384 no suelta nada en ese recorrido
-    # -la malla se queda en 168 MB- ni tampoco mirando una grieta a zoom 21 en
-    # pantalla de 1.920, que es el peor caso probado y llega a 340 MB. Y sigue
-    # siendo un techo, no una reserva.
-    memoria_mb: int = 384
+    # pedir lo que acababa de tirar.
+    #
+    # Se queda en 256 y no en 384 porque con detalle 3 una vista de cerca usa
+    # 185 MB: 256 deja margen de sobra para girar sin volver a pedir nada -que
+    # es para lo que sirve la cache- sin reservar memoria de video que nadie
+    # va a usar. Si algun dia se sube el detalle, hay que subir esto con el.
+    memoria_mb: int = 256
 
 
 MODELOS: tuple[Modelo, ...] = (
@@ -150,8 +161,8 @@ MODELOS: tuple[Modelo, ...] = (
         caja=(-76.566948, 3.433575, -76.562047, 3.437902),
         resolucion_cm=2.0,
         zoom_llegada=18.0,
-        detalle=5.0,
-        memoria_mb=384,
+        detalle=3.0,
+        memoria_mb=256,
     ),
 )
 

@@ -39,7 +39,9 @@
  */
 
 import { api, avisar } from './util.js';
-import { mapa, cambiarBase, baseGuardada, mostrarBrujula } from './mapa.js';
+import {
+  mapa, cambiarBase, baseGuardada, baseActiva, mostrarBrujula, mostrarBaseSinFondo,
+} from './mapa.js';
 
 const VENDOR = '/vendor';
 
@@ -59,11 +61,34 @@ let borrador = null;
 let camaraPrevia = null;
 let basePrevia = null;
 
-// Mapa base bajo un modelo 3D. Es una decision de aspecto, no de gusto: el
-// modelo es una fotografia aerea con relieve, y dejarlo sobre un callejero
-// plano lo hace parecer un recorte pegado encima. Sobre ortoimagen, el borde
-// del vuelo se funde con lo que hay alrededor y se lee como lo que es, un
-// trozo de terreno mejor levantado que el resto.
+/* Mapa base bajo un modelo 3D
+ * ---------------------------
+ * Es una decision de aspecto: el modelo es una fotografia aerea con relieve,
+ * y dejarlo sobre un callejero plano lo hace parecer un recorte pegado
+ * encima. Sobre ortoimagen, el borde del vuelo se funde con lo que hay
+ * alrededor y se lee como lo que es, un trozo de terreno mejor levantado que
+ * el resto.
+ *
+ * Cualquier mapa base, eso si, se dibuja a UNA sola altura -la del plano del
+ * mapa- y el vuelo baja 143 m por debajo de la explanada, asi que mirando de
+ * lado ese plano cruza la ladera. Para quien le moleste esta «Sin fondo»,
+ * que apaga el mapa y deja el vuelo solo. El boton aparece junto a los otros
+ * mapas base mientras haya un modelo encendido.
+ *
+ * Lo que estaria bien de verdad es un relieve del terreno alrededor, que
+ * continuase la ladera mas alla del borde del vuelo. Se ha intentado dos
+ * veces y las dos se retiro; sigue pendiente y no esta descartado. Si se
+ * vuelve, dos avisos de la ultima tanda:
+ *
+ *   - El terreno tiene que dibujarlo deck.gl, no MapLibre: la superposicion
+ *     de deck mantiene su propia camara y no sigue al terreno de MapLibre, de
+ *     modo que quedarian desalineados. Estando los dos en deck comparten
+ *     camara y profundidad, y encajan por construccion.
+ *   - Y hay que mirarlo en el LIENZO DE DECK a solas. Superponiendo los dos
+ *     lienzos del visor para retratarlos sale un falso positivo que parece un
+ *     fallo de texturas del modelo y no lo es: es la ortoimagen del mapa base
+ *     dibujada encima, que sobre este cerro es del mismo color salmon.
+ */
 const BASE_PARA_3D = 'satelite';
 
 const COLOR_BORRADOR = [255, 209, 102];
@@ -127,16 +152,19 @@ function permitirVista3D() {
   mapa.touchZoomRotate.enableRotation();
 
   mostrarBrujula(true);
+  mostrarBaseSinFondo(true);
 
-  basePrevia = baseGuardada();
+  basePrevia = baseActiva();
   if (basePrevia !== BASE_PARA_3D) {
     cambiarBase(BASE_PARA_3D);
-    avisar('Se cambió a Satélite mientras miras el modelo 3D. '
-           + 'Puedes elegir otro mapa base cuando quieras. '
-           + 'La brújula de arriba a la derecha devuelve la vista.');
+    avisar('Se cambió a Satélite mientras miras el modelo 3D. Si el mapa plano '
+           + 'te estorba al inclinar la vista, tienes «Sin fondo» junto a los '
+           + 'mapas base. Arrastra con el botón derecho para inclinar y girar; '
+           + 'la brújula endereza la vista.');
   } else {
-    avisar('Arrastra con el botón derecho para inclinar y girar. '
-           + 'La brújula de arriba a la derecha devuelve la vista.');
+    avisar('Arrastra con el botón derecho para inclinar y girar. Si el mapa '
+           + 'plano te estorba, tienes «Sin fondo» junto a los mapas base. '
+           + 'La brújula de arriba a la derecha endereza la vista.');
   }
 }
 
@@ -148,12 +176,11 @@ function devolverVista2D() {
   mapa.easeTo({ pitch: camaraPrevia.pitch, bearing: camaraPrevia.bearing, duration: 400 });
   camaraPrevia = null;
 
-  // Solo se devuelve si nadie lo toco a mano por el camino: cambiar de mapa
-  // base es una eleccion de quien mira, y deshacersela al apagar una capa
-  // seria quitarle el mando.
-  if (basePrevia && basePrevia !== BASE_PARA_3D && baseGuardada() === BASE_PARA_3D) {
-    cambiarBase(basePrevia);
-  }
+  // «Sin fondo» solo tiene sentido con un modelo delante: dejarlo puesto al
+  // apagarlo dejaria el visor en negro. Lo demas se respeta, que cambiar de
+  // mapa base es una eleccion de quien mira.
+  if (baseActiva() === 'sinfondo') cambiarBase(basePrevia || baseGuardada());
+  mostrarBaseSinFondo(false);
   basePrevia = null;
 }
 
