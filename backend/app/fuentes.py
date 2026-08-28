@@ -940,8 +940,9 @@ CATALOGO: tuple[Fuente, ...] = (
         zoom_min=17,
         nota="Recorte del mismo vuelo, solo el monumento y su explanada: 19 MB en vez "
              "de 628. Al ser pequeño se pide con mucho más detalle, así que la estatua "
-             "se ve nítida sin esperar. Se solapa con la capa del vuelo completo; "
-             "conviene tener encendida una de las dos, no las dos a la vez.",
+             "se ve nítida sin esperar. Se puede tener a la vez que el vuelo completo, "
+             "que pone el cerro alrededor; ocupan el mismo sitio sobre el monumento, "
+             "así que si ahí ves la superficie parpadear, apaga una de las dos.",
     ),
 )
 
