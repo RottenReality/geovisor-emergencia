@@ -678,7 +678,9 @@ function pintarFilaExterna(item) {
                data-accion="opacidad">
         ${bloqueTamano(item)}
         ${item.fuente.tipo === 'modelo3d' ? `
-          <label for="nom-${escapar(item.id)}" style="margin-top:10px">Nombre en el panel</label>
+          <label for="nom-${escapar(item.id)}" style="margin-top:10px">
+            Nombre en el panel <span class="pista">se guarda al salir del campo</span>
+          </label>
           <input type="text" id="nom-${escapar(item.id)}" maxlength="80"
                  value="${escapar(item.nombre)}" data-accion="renombrar">
           <label for="col-${escapar(item.id)}">Color de la marca</label>
@@ -753,15 +755,29 @@ function pintarFilaExterna(item) {
     } else if (accion === 'renombrar') {
       // onchange y no oninput: repintar el panel en cada tecla dejaria la
       // casilla sin foco a la segunda letra. Vacio = volver al del catalogo.
+      //
+      // Y SIEMPRE se avisa. Guardar al salir del campo, sin decir nada, no se
+      // distingue de no haber guardado: la fila cambia de nombre pero muchas
+      // veces esta truncada y no se nota. Alguien puede renombrar la capa,
+      // creer que no funciono y volver a intentarlo.
       control.onchange = () => {
-        externas.fijar(item.id, { nombre: control.value.trim() })
-          .then(() => pintar())
+        const nombre = control.value.trim();
+        externas.fijar(item.id, { nombre })
+          .then(() => {
+            pintar();
+            avisar(nombre
+              ? `Ahora se llama «${nombre}» para todo el equipo.`
+              : 'Se devolvió el nombre del catálogo.');
+          })
           .catch((error) => avisar(error.message, true));
       };
     } else if (accion === 'recolorear') {
       control.onchange = (e) => {
         externas.fijar(item.id, { color: e.target.value })
-          .then(() => pintar())
+          .then(() => {
+            pintar();
+            avisar('Color de la marca cambiado para todo el equipo.');
+          })
           .catch((error) => avisar(error.message, true));
       };
     } else {

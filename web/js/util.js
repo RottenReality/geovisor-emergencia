@@ -69,11 +69,23 @@ export function descargarArchivo(url, mensaje, nombre = '') {
   if (mensaje) avisar(mensaje);
 }
 
-export function escapar(texto) {
-  const div = document.createElement('div');
-  div.textContent = texto;
-  return div.innerHTML;
-}
+/**
+ * Texto seguro para meter en HTML, incluido DENTRO de un atributo.
+ *
+ * Antes esto creaba un <div>, le ponia el texto y devolvia su innerHTML. Eso
+ * escapa &, < y >, pero NO las comillas, y aqui se usa sobre todo dentro de
+ * atributos: value="...", title="...". Un nombre de capa con una comilla
+ * cerraba el atributo antes de tiempo; lo visible era que el nombre salia
+ * cortado, y lo no visible es que el resto se colaba como atributos sueltos.
+ * Los nombres de las capas los escribe el equipo, asi que no era hipotetico.
+ *
+ * De paso deja de tocar el DOM: el panel llama a esto cientos de veces en
+ * cada repintado, y crear un elemento por llamada era trabajo regalado.
+ */
+const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+export const escapar = (texto) =>
+  String(texto ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c]);
 
 export const numero = (valor, decimales = 1) =>
   Number(valor).toLocaleString('es-CO', {
