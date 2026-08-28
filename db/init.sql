@@ -301,6 +301,20 @@ CREATE TABLE IF NOT EXISTS externas (
 );
 ALTER TABLE externas ADD COLUMN IF NOT EXISTS radio REAL NOT NULL DEFAULT 1;
 
+-- Nombre y color propios de una fuente publicada.
+--
+-- NULL significa «el del catalogo», que es lo normal: el nombre oficial de un
+-- servicio dice de donde sale el dato y no conviene tocarlo. Existe para los
+-- modelos 3D, donde dos capas del mismo vuelo se llaman casi igual y en el
+-- panel, truncadas, quedan indistinguibles.
+--
+-- Va en esta tabla y no en el navegador a proposito: el panel de capas es
+-- comun a todo el equipo, igual que el orden y la opacidad. Que cada uno
+-- viera un nombre distinto para la misma capa seria peor que no poder
+-- cambiarlo.
+ALTER TABLE externas ADD COLUMN IF NOT EXISTS nombre TEXT;
+ALTER TABLE externas ADD COLUMN IF NOT EXISTS color  TEXT;
+
 -- Una fila por cosa que ocupa sitio en el panel, grupos incluidos:
 --   capa-13  raster-6  ext-ungrd-ede  grupo-2
 -- Estar aqui es lo que significa estar en el mapa.

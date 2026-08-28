@@ -61,8 +61,12 @@ export function items() {
         esExterna: true,
         esRaster: false,
         esImagen: fuente.tipo === 'imagen',
-        nombre: fuente.nombre,
-        color: fuente.color,
+        // Lo que el equipo haya puesto manda sobre lo que trae el catalogo.
+        nombre: estado.nombre || fuente.nombre,
+        color: estado.color || fuente.color,
+        // Y se guarda si esta renombrada, para poder ofrecer deshacerlo.
+        propioNombre: estado.nombre || '',
+        propioColor: estado.color || '',
         estilo: fuente.simbologia || null,
         visible: estado.visible !== false,
         opacidad: estado.opacidad ?? 1,
@@ -145,8 +149,13 @@ export async function inicializar(alCambiarCapas) {
   // viene dentro del propio catalogo. Antes salia del localStorage y bastaba
   // con pedirlo si habia alguna encendida.
   await cargarCatalogo();
+  // `radio` faltaba aqui: se guardaba en el servidor pero no se leia al
+  // arrancar, asi que el tamano de punto volvia a 1 en cada recarga.
   encendidas = Object.fromEntries((catalogo?.publicadas || []).map(
-    (p) => [p.clave, { visible: p.visible, opacidad: p.opacidad }]));
+    (p) => [p.clave, {
+      visible: p.visible, opacidad: p.opacidad, radio: p.radio,
+      nombre: p.nombre, color: p.color,
+    }]));
   // Los vectores ya publicados se descargan ahora, para que el panel pueda
   // decir cuantos elementos traen sin esperar a que alguien los abra.
   await Promise.all(Object.keys(encendidas).map(

@@ -677,6 +677,18 @@ function pintarFilaExterna(item) {
         <input type="range" min="0" max="100" value="${Math.round((item.opacidad ?? 1) * 100)}"
                data-accion="opacidad">
         ${bloqueTamano(item)}
+        ${item.fuente.tipo === 'modelo3d' ? `
+          <label for="nom-${escapar(item.id)}" style="margin-top:10px">Nombre en el panel</label>
+          <input type="text" id="nom-${escapar(item.id)}" maxlength="80"
+                 value="${escapar(item.nombre)}" data-accion="renombrar">
+          <label for="col-${escapar(item.id)}">Color de la marca</label>
+          <input type="color" id="col-${escapar(item.id)}"
+                 value="${escapar(item.color)}" data-accion="recolorear">
+          <p class="nota" style="margin-top:0">
+            El color solo distingue la capa <strong>en este panel</strong>: un modelo lleva
+            su propia fotografía encima y no se puede teñir. Deja el nombre vacío para
+            volver al del catálogo.
+          </p>` : ''}
         ${entradas.length ? `
           <div class="leyenda-mini">
             ${entradas.map((f) => `
@@ -738,6 +750,20 @@ function pintarFilaExterna(item) {
       control.onchange = (e) => externas
         .fijar(item.id, { radio: Number(e.target.value) / 100 })
         .catch((error) => avisar(error.message, true));
+    } else if (accion === 'renombrar') {
+      // onchange y no oninput: repintar el panel en cada tecla dejaria la
+      // casilla sin foco a la segunda letra. Vacio = volver al del catalogo.
+      control.onchange = () => {
+        externas.fijar(item.id, { nombre: control.value.trim() })
+          .then(() => pintar())
+          .catch((error) => avisar(error.message, true));
+      };
+    } else if (accion === 'recolorear') {
+      control.onchange = (e) => {
+        externas.fijar(item.id, { color: e.target.value })
+          .then(() => pintar())
+          .catch((error) => avisar(error.message, true));
+      };
     } else {
       control.onclick = () => manejarExterna(accion, item, clave);
     }

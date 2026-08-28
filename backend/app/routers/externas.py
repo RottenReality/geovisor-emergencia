@@ -483,7 +483,7 @@ async def catalogo():
                 ficha["bounds"] = [float(v) for v in carga["bbox"]]
 
     publicadas = await db.pool().fetch(
-        "SELECT clave, visible, opacidad, radio FROM externas")
+        "SELECT clave, visible, opacidad, radio, nombre, color FROM externas")
 
     return {
         "temas": [{"clave": c, "titulo": t, "descripcion": d} for c, t, d in fuentes.TEMAS],
@@ -610,6 +610,11 @@ class ExternaParche(BaseModel):
     visible: bool | None = None
     opacidad: float | None = Field(default=None, ge=0, le=1)
     radio: float | None = Field(default=None, ge=0.3, le=4)
+    # Nombre y color propios. La cadena vacia NO es «sin nombre»: es «vuelve a
+    # usar el del catalogo». Sin esa distincion no habria forma de deshacer un
+    # renombrado, porque no mandar el campo significa dejarlo como esta.
+    nombre: str | None = Field(default=None, max_length=80)
+    color: str | None = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")
 
 
 @router.post("/{clave}/encender", status_code=201)
@@ -647,10 +652,22 @@ async def apagar(clave: str):
 @router.patch("/{clave}")
 async def editar(clave: str, parche: ExternaParche):
     fila = await db.pool().fetchrow(
-        "UPDATE externas SET visible=COALESCE($2, visible), "
-        "opacidad=COALESCE($3, opacidad), radio=COALESCE($4, radio) WHERE clave=$1 "
-        "RETURNING clave, visible, opacidad, radio",
-        clave, parche.visible, parche.opacidad, parche.radio)
+        """
+        UPDATE externas SET
+          visible  = COALESCE($2, visible),
+          opacidad = COALESCE($3, opacidad),
+          radio    = COALESCE($4, radio),
+          -- Tres casos: no viene -> se deja; viene vacio -> se borra y vuelve
+          -- a mandar el catalogo; viene con texto -> se guarda.
+          nombre   = CASE WHEN $5::text IS NULL THEN nombre
+                          WHEN $5 = '' THEN NULL ELSE $5 END,
+          color    = CASE WHEN $6::text IS NULL THEN color
+                          WHEN $6 = '' THEN NULL ELSE $6 END
+        WHERE clave = $1
+        RETURNING clave, visible, opacidad, radio, nombre, color
+        """,
+        clave, parche.visible, parche.opacidad, parche.radio,
+        parche.nombre, parche.color)
     if fila is None:
         raise HTTPException(status_code=404, detail="Esa fuente no esta publicada")
     return dict(fila)
