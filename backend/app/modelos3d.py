@@ -143,11 +143,31 @@ class Modelo:
     # O sea que descargaba MAS y ensenaba PEOR: se pasaba el rato volviendo a
     # pedir lo que acababa de tirar.
     #
-    # Se queda en 256 y no en 384 porque con detalle 3 una vista de cerca usa
-    # 185 MB: 256 deja margen de sobra para girar sin volver a pedir nada -que
-    # es para lo que sirve la cache- sin reservar memoria de video que nadie
-    # va a usar. Si algun dia se sube el detalle, hay que subir esto con el.
-    memoria_mb: int = 256
+    # 256 se quedaba corto. Ese numero salio de medir una sola vista quieta
+    # (185 MB); un recorrido normal -llegar, dar la vuelta, acercarse a la
+    # estatua, alejarse y volver- pide 458 MB, o sea casi el doble del
+    # presupuesto. Estando siempre por encima, la libreria suelta sin parar.
+    #
+    # Y lo que suelta es lo FINO: como el refinado es por reemplazo, al tirar
+    # una tesela de detalle se vuelve a dibujar la basta de la que cuelga,
+    # solo en ese trozo. De ahi los cuadrados poligonales pegados a partes
+    # que si se ven bien, y los huecos. En el brazo del Cristo se nota mas
+    # porque es delgado y la version basta no da para representarlo.
+    #
+    # Medido con ese recorrido, ventana de 1.400 x 850, detalle 3:
+    #
+    #     256 MB -> 316 teselas pedidas, 71,3 MB, 149 soltadas, se queda en L18
+    #     512 MB -> 286 teselas,         66,1 MB,   0 soltadas, llega a L20
+    #     768 MB -> igual que 512 (el pico real son 458 MB)
+    #
+    # Con el presupuesto corto descargaba MAS y ensenaba PEOR: se pasaba el
+    # rato volviendo a pedir lo que acababa de tirar.
+    #
+    # Subir el detalle NO es la salida, aunque lo parezca: con detalle 5 el
+    # pico sube a 511 MB, se vuelve a rozar el techo, se sueltan 193 teselas y
+    # el resultado acaba siendo mas basto que con detalle 3. Detalle y
+    # presupuesto van juntos; si algun dia se sube uno hay que subir el otro.
+    memoria_mb: int = 512
 
 
 MODELOS: tuple[Modelo, ...] = (
@@ -162,7 +182,7 @@ MODELOS: tuple[Modelo, ...] = (
         resolucion_cm=2.0,
         zoom_llegada=18.0,
         detalle=3.0,
-        memoria_mb=256,
+        memoria_mb=512,
     ),
 )
 
