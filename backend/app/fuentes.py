@@ -928,6 +928,21 @@ CATALOGO: tuple[Fuente, ...] = (
              "resolución de unos 2 cm. Cubre 545 × 478 m alrededor del monumento y solo "
              "lo que vio la cámara, así que hay huecos bajo los aleros y la vegetación.",
     ),
+    Fuente(
+        clave="modelo-cristo-monumento",
+        nombre="Cristo Rey · el monumento en detalle",
+        organizacion="SIATA",
+        tema="modelo",
+        tipo="modelo3d",
+        url="",
+        color="#c77dff",
+        naturaleza="estatica",
+        zoom_min=17,
+        nota="Recorte del mismo vuelo, solo el monumento y su explanada: 19 MB en vez "
+             "de 628. Al ser pequeño se pide con mucho más detalle, así que la estatua "
+             "se ve nítida sin esperar. Se solapa con la capa del vuelo completo; "
+             "conviene tener encendida una de las dos, no las dos a la vez.",
+    ),
 )
 
 POR_CLAVE = {f.clave: f for f in CATALOGO}

@@ -6,6 +6,7 @@ en el log y la pantalla sale negra. Cuesta media tarde averiguar por que.
 
 Se ejecutan con:  cd backend && python -m unittest discover -s tests -v
 """
+import json
 import math
 import unittest
 
@@ -111,6 +112,67 @@ class Apoyo(unittest.TestCase):
         self.assertAlmostEqual(modelos3d.altura_real(modelo, 0.0), modelo.altura_base)
         self.assertAlmostEqual(modelos3d.altura_real(modelo, 26.0),
                                modelo.altura_base + 26.0)
+
+
+class NivelesBastos(unittest.TestCase):
+    """El vaciado que hace utilizable un recorte del vuelo."""
+
+    ARBOL = {
+        "root": {
+            "content": {"uri": "BlockR_L13_1.b3dm"},
+            "children": [
+                {"content": {"uri": "BlockR_L19_82.b3dm"}, "children": [
+                    {"content": {"uri": "BlockR_L23_800.b3dm"}},
+                    {"content": {"uri": "BlockR_L20_160.json"}},
+                ]},
+                {"content": {"uri": "sin_nivel_en_el_nombre.b3dm"}},
+            ],
+        },
+    }
+
+    def _uris(self, tile, acc=None):
+        acc = [] if acc is None else acc
+        uri = (tile.get("content") or {}).get("uri")
+        if uri:
+            acc.append(uri)
+        for h in tile.get("children", []):
+            self._uris(h, acc)
+        return acc
+
+    def test_se_quita_lo_basto_y_se_queda_lo_fino(self):
+        # Un recorte hereda las teselas bastas con la malla del vuelo entero:
+        # son las que dibujan planos por delante del monumento.
+        salida = modelos3d.sin_niveles_bastos(self.ARBOL, 20)
+        uris = self._uris(salida["root"])
+        self.assertNotIn("BlockR_L13_1.b3dm", uris)
+        self.assertNotIn("BlockR_L19_82.b3dm", uris)
+        self.assertIn("BlockR_L23_800.b3dm", uris)
+
+    def test_los_nodos_siguen_estando(self):
+        # Vaciar no es podar: sin el nodo intermedio no hay camino hasta la
+        # tesela fina que cuelga de el.
+        salida = modelos3d.sin_niveles_bastos(self.ARBOL, 20)
+        self.assertEqual(len(salida["root"]["children"]), 2)
+        self.assertEqual(len(salida["root"]["children"][0]["children"]), 2)
+
+    def test_los_tilesets_hijos_no_se_tocan(self):
+        # Un .json no es geometria: es la continuacion del arbol.
+        salida = modelos3d.sin_niveles_bastos(self.ARBOL, 20)
+        self.assertIn("BlockR_L20_160.json", self._uris(salida["root"]))
+
+    def test_un_nombre_raro_se_deja_como_esta(self):
+        # Mas vale que dibuje de mas a que desaparezca sin avisar.
+        salida = modelos3d.sin_niveles_bastos(self.ARBOL, 20)
+        self.assertIn("sin_nivel_en_el_nombre.b3dm", self._uris(salida["root"]))
+
+    def test_con_cero_no_hace_nada(self):
+        # Es lo normal: solo los recortes lo necesitan.
+        self.assertIs(modelos3d.sin_niveles_bastos(self.ARBOL, 0), self.ARBOL)
+
+    def test_no_se_toca_el_original(self):
+        antes = json.dumps(self.ARBOL, sort_keys=True)
+        modelos3d.sin_niveles_bastos(self.ARBOL, 20)
+        self.assertEqual(json.dumps(self.ARBOL, sort_keys=True), antes)
 
 
 class Catalogo(unittest.TestCase):

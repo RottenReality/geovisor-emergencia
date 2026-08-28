@@ -82,6 +82,7 @@ async def tileset(clave: str):
         with open(origen, encoding="utf8") as f:
             crudo = json.load(f)
         apoyado = modelos3d.raiz_apoyada(crudo, modelo.altura_base)
+        apoyado = modelos3d.sin_niveles_bastos(apoyado, modelo.dibujar_desde)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         raise HTTPException(
             status_code=500,
@@ -93,9 +94,40 @@ async def tileset(clave: str):
 
 @router.get("/{clave}/{ruta:path}")
 async def archivo(clave: str, ruta: str):
-    """Una tesela o un tileset hijo, tal cual esta en disco."""
+    """Una tesela, o un tileset hijo.
+
+    Las teselas van tal cual: son el 99,9% del peso y no hay nada que
+    cambiarles. Los tilesets hijos, en cambio, pasan por el mismo vaciado de
+    niveles bastos que la raiz; si no, el recorte volveria a dibujar los
+    planos del cerro en cuanto el recorrido bajase un nivel.
+    """
     modelo = _modelo(clave)
     destino = _archivo(modelo, ruta)
+
+    if destino.lower().endswith(".json") and modelo.dibujar_desde:
+        return JSONResponse(_tileset_hijo(modelo, destino),
+                            headers={"Cache-Control": CACHE})
+
     tipo = ("application/json" if destino.lower().endswith(".json")
             else "application/octet-stream")
     return FileResponse(destino, media_type=tipo, headers={"Cache-Control": CACHE})
+
+
+# Los tilesets hijos son pocos -diez en el recorte del monumento- y no cambian
+# nunca. Se guardan ya vaciados para no releer y reescribir en cada tesela.
+_hijos_vaciados: dict[str, dict] = {}
+
+
+def _tileset_hijo(modelo: modelos3d.Modelo, destino: str) -> dict:
+    if destino not in _hijos_vaciados:
+        try:
+            with open(destino, encoding="utf8") as f:
+                crudo = json.load(f)
+        except (OSError, json.JSONDecodeError) as error:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ese tileset del modelo no se pudo leer: {error}",
+            ) from error
+        _hijos_vaciados[destino] = modelos3d.sin_niveles_bastos(
+            crudo, modelo.dibujar_desde)
+    return _hijos_vaciados[destino]

@@ -48,6 +48,7 @@ Para que una anotacion se guarde con su altura de verdad, `altura_base` se le
 vuelve a sumar antes de mandarla a la base: ver `altura_real`.
 """
 import math
+import re
 from dataclasses import dataclass
 
 # WGS84.
@@ -168,6 +169,53 @@ class Modelo:
     # el resultado acaba siendo mas basto que con detalle 3. Detalle y
     # presupuesto van juntos; si algun dia se sube uno hay que subir el otro.
     memoria_mb: int = 512
+    # Nivel a partir del cual el modelo DIBUJA. Por debajo, sus teselas siguen
+    # existiendo como nodos del arbol -hacen falta para llegar a las de abajo-
+    # pero no pintan nada. Cero = pintar todo, que es lo normal.
+    #
+    # Hace falta para los recortes. Cuando a un vuelo se le extrae una zona
+    # -el monumento, por ejemplo- se recortan la lista de teselas y sus
+    # volumenes, pero NO la malla de las teselas bastas: esas siguen llevando
+    # dentro los triangulos de todo el cerro. Como su volumen ya dice que
+    # estan en el monumento, el visor las elige, y lo que dibuja son planos
+    # enormes que cruzan por delante de la estatua. Vaciandolas se acabo.
+    #
+    # No se pierde nada util: por debajo de ese nivel el recorte no tiene
+    # geometria propia que ensenar.
+    dibujar_desde: int = 0
+
+
+def sin_niveles_bastos(tileset: dict, desde: int) -> dict:
+    """Copia del tileset con el contenido de los niveles bastos quitado.
+
+    Un tile sin `content` es legal en 3D Tiles: sigue sirviendo de nodo del
+    arbol -y por tanto de camino hacia sus hijos- pero no dibuja. Es justo lo
+    que hace falta en un recorte, donde las teselas bastas heredadas llevan la
+    malla del vuelo entero.
+
+    El nivel se saca del nombre del archivo (`..._L21_380.b3dm`), que es como
+    los numera DJI Terra. Una tesela cuyo nombre no siga ese patron se deja
+    como esta: mas vale que dibuje de mas a que desaparezca sin avisar.
+    """
+    if desde <= 0:
+        return tileset
+
+    def limpiar(tile: dict) -> dict:
+        copia = dict(tile)
+        uri = (copia.get("content") or {}).get("uri", "")
+        if uri.endswith(".b3dm"):
+            marca = re.search(r"_L(\d+)_", uri)
+            if marca and int(marca.group(1)) < desde:
+                copia.pop("content", None)
+        hijos = copia.get("children")
+        if hijos:
+            copia["children"] = [limpiar(h) for h in hijos]
+        return copia
+
+    copia = dict(tileset)
+    if "root" in copia:
+        copia["root"] = limpiar(copia["root"])
+    return copia
 
 
 MODELOS: tuple[Modelo, ...] = (
@@ -183,6 +231,40 @@ MODELOS: tuple[Modelo, ...] = (
         zoom_llegada=18.0,
         detalle=3.0,
         memoria_mb=512,
+    ),
+    Modelo(
+        clave="modelo-cristo-monumento",
+        carpeta="cristo-solo",
+        raiz="tileset.json",
+        # Misma referencia que el vuelo grande: el recorte sale de el, con la
+        # misma matriz, asi que los dos se apoyan igual y coinciden.
+        altura_base=1483.0,
+        centro=(-76.564805, 3.435928),
+        # El recorte va de 1.483 a 1.512 m: la explanada y los 29 m de
+        # monumento. La caja es pequena a proposito, para que «Ir a la capa»
+        # aterrice encima y no sobre media ladera.
+        caja=(-76.565100, 3.435700, -76.564500, 3.436150),
+        resolucion_cm=2.0,
+        zoom_llegada=19.5,
+        # Muy por encima del 3 del vuelo grande, y con razon: los errores
+        # geometricos que declara son los mismos -0,009 m en L23- y con el
+        # ajuste normal el visor se quedaria en L18 salvo que uno se ponga a
+        # doce metros. Aqui subirlo no cuesta lo que costaria alli, porque el
+        # recorte entero pesa 19 MB.
+        #
+        # Medido en el banco, mirando el monumento completo desde unos 90 m:
+        #
+        #     detalle  30 ->  8,0 MB de descarga,  93 MB de video, llega a L22
+        #     detalle 120 -> 27,1 MB,             701 MB,          llega a L23
+        #
+        # Se queda en 30: las dos capturas puestas una al lado de la otra no
+        # se distinguen, y acercandose se llega igual a L23 y L24, que para
+        # entonces son pocas teselas. Pagar ocho veces mas memoria por lo
+        # mismo no tiene sentido.
+        detalle=30.0,
+        memoria_mb=256,
+        # Por debajo de L20, la malla heredada es la del cerro entero.
+        dibujar_desde=20,
     ),
 )
 
